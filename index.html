@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="az">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1220"><meta name="description" content="SAKHAVAT FOOTBALL PREDICTOR — data-driven football analytics">
+<link rel="manifest" href="/manifest.json"><link rel="stylesheet" href="/styles.css">
+<title>SAKHAVAT FOOTBALL PREDICTOR 1.0</title>
+</head>
+<body>
+<header class="top"><div class="brand"><div class="mark">S</div><div><b>SAKHAVAT</b><span>FOOTBALL PREDICTOR <i>1.0</i></span></div></div><div class="live"><span></span> DATA CENTER</div></header>
+<main>
+<section class="hero"><div><p class="eyebrow">INTELLIGENCE · PROBABILITY · FOOTBALL</p><h1>Match intelligence.<br><em>Not guesswork.</em></h1><p class="muted">Klub və milli komandalar üçün statistik analiz platforması.</p></div><div class="hero-ball">⚽</div></section>
+<section class="statusbar"><div><small>DATA CONNECTION</small><strong id="connection">Yoxlanılır...</strong></div><div><small>MODEL</small><strong>SF-P 1.0</strong></div><div><small>TIMEZONE</small><strong>Asia/Baku</strong></div></section>
+<nav class="tabs"><button class="tab active" data-tab="matches">Oyunlar</button><button class="tab" data-tab="model">Model</button><button class="tab" data-tab="history">Tarixçə</button></nav>
+<section id="matches" class="panel active"><div class="section-head"><div><p class="eyebrow">MATCH CENTER</p><h2>Oyun təqvimi</h2></div><button id="refresh" class="outline">↻ Yenilə</button></div><div class="date-row"><input id="matchDate" type="date"><button id="loadDate" class="primary">Oyunları gətir</button></div><div id="matchList" class="empty"><div class="empty-icon">⌁</div><b>Hələ məlumat yoxdur</b><p>Canlı oyunları görmək üçün serverdə API açarı konfiqurasiya edilməlidir. Demo nəticələr göstərilmir.</p></div></section>
+<section id="model" class="panel"><p class="eyebrow">PREDICTION ENGINE</p><h2>Analiz mühərriki</h2><div class="model-grid"><article><span>01</span><h3>Elo Rating</h3><p>Komandaların nisbi gücü və rəqib səviyyəsinə görə reytinq.</p></article><article><span>02</span><h3>Poisson / Dixon-Coles</h3><p>Gözlənilən qollar əsasında hesab və 1-X-2 ehtimalları.</p></article><article><span>03</span><h3>xG Layer</h3><p>Mövcud olduqda gözlənilən qol göstəricilərinin modelə inteqrasiyası.</p></article><article><span>04</span><h3>Market Edge</h3><p>Bukmeker marjası təmizlənmiş bazar ehtimalları ilə müqayisə.</p></article></div><p class="notice">Modelin nəticələri ehtimaldır, zəmanət deyil. xG və odds məlumatı provayderdən asılıdır.</p></section>
+<section id="history" class="panel"><p class="eyebrow">PERFORMANCE TRACKER</p><h2>Proqnoz tarixçəsi</h2><div class="metrics"><div><small>1-X-2 HIT RATE</small><b>—</b></div><div><small>EXACT SCORE</small><b>—</b></div><div><small>BRIER SCORE</small><b>—</b></div><div><small>LOG LOSS</small><b>—</b></div></div><p class="muted">Statistika yalnız vaxt möhürü ilə saxlanmış proqnozlar və təsdiqlənmiş yekun nəticələr olduqdan sonra hesablanacaq.</p></section>
+<footer><span>SAKHAVAT FOOTBALL PREDICTOR 1.0</span><span>BUILT FOR ANALYSIS · 2026</span></footer>
+</main><script src="/app.js"></script>
+</body></html>
