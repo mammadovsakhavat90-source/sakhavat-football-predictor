@@ -1,4 +1,4 @@
-const dateInput = document.getElementById('match-date');
+public/app.jsconst dateInput = document.getElementById('match-date');
 const fixturesBox = document.getElementById('fixtures');
 const statusText = document.getElementById('status');
 const today = new Date();
