@@ -1,8 +1,38 @@
-public/app.jsconst $=s=>document.querySelector(s);
-const dateInput=$('#matchDate'); dateInput.value=new Date().toISOString().slice(0,10);
-async function checkStatus(){try{const r=await fetch('/api/status');const d=await r.json();$('#connection').textContent=d.configured?'API qoşulub':'API açarı gözlənilir';$('#connection').style.color=d.configured?'#62d6a2':'#d6b36a';}catch{$('#connection').textContent='Serverə qoşulmayıb';}}
-async function loadFixtures(){const box=$('#matchList');box.className='empty';box.innerHTML='<b>Yüklənir...</b>';try{const r=await fetch('/api/fixtures?date='+encodeURIComponent(dateInput.value));const d=await r.json();if(!r.ok)throw new Error(d.error||'API xətası');if(!d.length){box.innerHTML='<b>Bu tarixdə təsdiqlənmiş oyun tapılmadı</b><p>Başqa tarix seçə bilərsən.</p>';return;}box.className='fixtures';box.innerHTML=d.map(x=>`<article class="fixture"><div><small>${x.league?.name||'Turnir'} · ${x.fixture?.date?new Date(x.fixture.date).toLocaleString('az-AZ'):''}</small><b>${x.teams?.home?.name||'—'} <span>vs</span> ${x.teams?.away?.name||'—'}</b></div><strong>${x.goals?.home??'–'} : ${x.goals?.away??'–'}</strong></article>`).join('');}catch(e){box.className='empty';box.innerHTML=`<b>Məlumat yüklənmədi</b><p>${e.message==='API_FOOTBALL_KEY_NOT_CONFIGURED'?'Serverdə API_FOOTBALL_KEY təyin edilməyib. .env.example faylındakı təlimata bax.':'API/server xətası: '+e.message}</p>`;}}
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab,.panel').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#'+b.dataset.tab).classList.add('active')}));
-$('#refresh').addEventListener('click',()=>{checkStatus();loadFixtures()});$('#loadDate').addEventListener('click',loadFixtures);
-if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));
-checkStatus();
+const dateInput = document.getElementById('match-date');
+const fixturesBox = document.getElementById('fixtures');
+const statusText = document.getElementById('status');
+const today = new Date();
+const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+dateInput.value = localDate;
+
+async function loadFixtures() {
+  fixturesBox.innerHTML = '';
+  statusText.textContent = 'Oyunlar yüklənir…';
+  try {
+    const response = await fetch(`/api/fixtures?date=${encodeURIComponent(dateInput.value)}`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Məlumat alınmadı');
+    const games = data.response || [];
+    if (!games.length) fixturesBox.innerHTML = '<div class="empty">Bu tarix üçün oyun tapılmadı.</div>';
+    games.forEach(item => {
+      const el = document.createElement('article'); el.className = 'fixture';
+      const home = item.teams?.home?.name || 'Ev sahibi';
+      const away = item.teams?.away?.name || 'Qonaq';
+      const time = item.fixture?.date ? new Date(item.fixture.date).toLocaleTimeString('az-AZ',{hour:'2-digit',minute:'2-digit'}) : '';
+      const league = item.league?.name || '';
+      el.innerHTML = `<div><div class="teams"></div><div class="meta"></div></div><strong></strong>`;
+      el.querySelector('.teams').textContent = `${home} — ${away}`;
+      el.querySelector('.meta').textContent = league;
+      el.querySelector('strong').textContent = time;
+      fixturesBox.appendChild(el);
+    });
+    statusText.textContent = `${games.length} oyun göstərilir.`;
+  } catch (err) {
+    statusText.textContent = err.message;
+    fixturesBox.innerHTML = '<div class="empty">Canlı məlumat üçün server və API açarı qurulmalıdır.</div>';
+  }
+}
+document.getElementById('refresh').addEventListener('click', loadFixtures);
+dateInput.addEventListener('change', loadFixtures);
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(()=>{}));
+loadFixtures();
