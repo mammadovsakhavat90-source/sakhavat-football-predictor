@@ -1,0 +1,8 @@
+{
+  "name": "sakhavat-football-predictor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"start": "node server/index.js", "dev": "node --watch server/index.js"},
+  "dependencies": {"@capacitor/android": "^7.4.3", "@capacitor/cli": "^7.4.3", "@capacitor/core": "^7.4.3"}
+}

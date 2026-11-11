@@ -1,0 +1,6 @@
+{
+  "appId": "az.sakhavat.predictor",
+  "appName": "Sakhavat Football Predictor",
+  "webDir": "public",
+  "server": {"androidScheme": "https"}
+}
