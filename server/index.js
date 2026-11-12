@@ -73,7 +73,7 @@ app.get('/api/fixtures', (req, res) => {
     });
   }
 
-  let endpoint = `/matches/date/${encodeURIComponent(date)}`;
+  let endpoint = `/matches?date=${encodeURIComponent(date)}`;;
 
   if (leagueId) {
     endpoint += `?league_id=${encodeURIComponent(leagueId)}`;
