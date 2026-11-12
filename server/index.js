@@ -65,6 +65,7 @@ app.get('/api/status', (_req, res) => {
 
 app.get('/api/fixtures', (req, res) => {
   const date = req.query.date;
+  const leagueId = req.query.league_id;
 
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return res.status(400).json({
@@ -72,28 +73,11 @@ app.get('/api/fixtures', (req, res) => {
     });
   }
 
-  return footballData(
-    `/matches/date/${encodeURIComponent(date)}`,
-    res
-  );
-});
+  let endpoint = `/matches/date/${encodeURIComponent(date)}`;
 
-app.get('/api/leagues', (_req, res) => {
-  return footballData('/leagues', res);
-});
+  if (leagueId) {
+    endpoint += `?league_id=${encodeURIComponent(leagueId)}`;
+  }
 
-app.get('/api/usage', (_req, res) => {
-  return footballData('/account/usage', res);
-});
-
-app.get('*', (_req, res) => {
-  res.sendFile(
-    path.join(__dirname, '..', 'public', 'index.html')
-  );
-});
-
-app.listen(PORT, () => {
-  console.log(
-    `SAKHAVAT FOOTBALL PREDICTOR running on port ${PORT}`
-  );
+  return footballData(endpoint, res);
 });
