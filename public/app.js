@@ -1,29 +1,37 @@
 
-const dateInput = document.getElementById('match-date');
-const fixturesBox = document.getElementById('fixtures');
-const statusText = document.getElementById('status');
+const dateInput = document.getElementById('matchDate');
+const matchesBox = document.getElementById('matchList');
+const connection = document.getElementById('connection');
 
 const today = new Date();
-const localDate = new Date(
+dateInput.value = new Date(
   today.getTime() - today.getTimezoneOffset() * 60000
 ).toISOString().slice(0, 10);
 
-dateInput.value = localDate;
+async function checkConnection() {
+  try {
+    const response = await fetch('/api/status');
+    const data = await response.json();
 
-function getMatchTime(match) {
-  if (match.date_unix) {
-    return new Date(match.date_unix * 1000)
-      .toLocaleTimeString('az-AZ', {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+    connection.textContent = data.apiConfigured
+      ? 'API aktivdir · ' + data.provider
+      : 'API açarı yoxdur';
+  } catch {
+    connection.textContent = 'Bağlantı xətası';
   }
-  return '';
+}
+
+function getTeam(match, side) {
+  return match[side + '_team']?.team_name ||
+    match[side + '_team']?.name ||
+    match[side]?.name ||
+    match[side + '_team_name'] ||
+    (side === 'home' ? 'Ev sahibi' : 'Qonaq');
 }
 
 async function loadFixtures() {
-  fixturesBox.innerHTML = '';
-  statusText.textContent = 'Oyunlar yüklənir...';
+  matchesBox.className = 'empty';
+  matchesBox.textContent = 'Oyunlar yüklənir...';
 
   try {
     const response = await fetch(
@@ -38,59 +46,57 @@ async function loadFixtures() {
 
     const games = data.matches || [];
 
+    matchesBox.innerHTML = '';
+
     if (!games.length) {
-      fixturesBox.innerHTML =
-        '<div class="empty">Bu tarixdə seçilmiş liqalarda oyun tapılmadı.</div>';
-      statusText.textContent = 'API bağlantısı aktivdir. Oyun yoxdur.';
+      matchesBox.className = 'empty';
+      matchesBox.innerHTML =
+        '<div class="empty-icon">⌁</div>' +
+        '<b>Bu tarixdə oyun tapılmadı</b>' +
+        '<p>Seçilmiş liqalar üzrə provayder məlumat qaytarmadı.</p>';
       return;
     }
 
+    matchesBox.className = '';
+
     games.forEach(match => {
-      const home = match.home_team?.team_name || 'Ev sahibi';
-      const away = match.away_team?.team_name || 'Qonaq';
-      const league = match.league?.name || 'Liqa';
-      const score = match.score;
-      const time = getMatchTime(match);
+      const card = document.createElement('article');
+      card.className = 'fixture';
 
-      const result = score &&
-        score.home !== null &&
-        score.away !== null
-        ? `${score.home} - ${score.away}`
-        : time || 'Başlamayıb';
-
-      const el = document.createElement('article');
-      el.className = 'fixture';
-
-      const info = document.createElement('div');
       const teams = document.createElement('div');
-      const meta = document.createElement('div');
-      const resultEl = document.createElement('strong');
-
       teams.className = 'teams';
+      teams.textContent =
+        `${getTeam(match, 'home')} — ${getTeam(match, 'away')}`;
+
+      const meta = document.createElement('div');
       meta.className = 'meta';
+      meta.textContent =
+        match.league?.name ||
+        match.league_name ||
+        'Liqa məlumatı yoxdur';
 
-      teams.textContent = `${home} — ${away}`;
-      meta.textContent = `${league} · ${match.status || 'scheduled'}`;
-      resultEl.textContent = result;
+      const result = document.createElement('strong');
+      const score = match.score;
 
-      info.appendChild(teams);
-      info.appendChild(meta);
-      el.appendChild(info);
-      el.appendChild(resultEl);
+      result.textContent =
+        score && score.home != null && score.away != null
+          ? `${score.home} - ${score.away}`
+          : 'Nəticə gözlənilir';
 
-      fixturesBox.appendChild(el);
+      card.append(teams, meta, result);
+      matchesBox.appendChild(card);
     });
 
-    statusText.textContent = `${games.length} oyun göstərilir.`;
-
   } catch (error) {
-    statusText.textContent = error.message;
-    fixturesBox.innerHTML =
-      '<div class="empty">Məlumat yüklənmədi. Yenidən yoxlayın.</div>';
+    matchesBox.className = 'empty';
+    matchesBox.textContent = 'Xəta: ' + error.message;
   }
 }
 
 document.getElementById('refresh')
+  ?.addEventListener('click', loadFixtures);
+
+document.getElementById('loadDate')
   .addEventListener('click', loadFixtures);
 
 dateInput.addEventListener('change', loadFixtures);
@@ -101,4 +107,5 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+checkConnection();
 loadFixtures();
