@@ -311,6 +311,104 @@ function matchAnalysis(match) {
 }
 function percent(value) { return Number.isFinite(Number(value)) ? Number(value).toFixed(1) + '%' : '—'; }
 
+const HISTORY_KEY = 'sakhavat_predictor_history_v1';
+function readPredictionHistory() {
+  try {
+    const value = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    return Array.isArray(value) ? value : [];
+  } catch { return []; }
+}
+function writePredictionHistory(rows) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(rows.slice(-200)));
+    return true;
+  } catch (error) {
+    console.warn('Prediction history could not be saved in this browser:', error);
+    return false;
+  }
+}
+function scoreFromMatch(match) {
+  const score = match.score || match.result || {};
+  const home = Number(first(score.home, score.home_score, match.home_score));
+  const away = Number(first(score.away, score.away_score, match.away_score));
+  if (!Number.isFinite(home) || !Number.isFinite(away)) return null;
+  return { home, away, outcome: home > away ? '1' : home < away ? '2' : 'X',
+    exact: home + '-' + away };
+}
+function recordPredictionHistory(match, analysis, feeds) {
+  const id = String(first(match.match_id, match.fixture_id, ''));
+  if (!id) return;
+  const rows = readPredictionHistory();
+  const index = rows.findIndex(row => row.id === id);
+  const status = classifyStatus(match);
+  if (status === 'finished') {
+    const result = scoreFromMatch(match);
+    if (result && index >= 0 && !rows[index].result) {
+      rows[index].result = result;
+      rows[index].completedAt = new Date().toISOString();
+      writePredictionHistory(rows);
+    }
+    return;
+  }
+  const kickoff = Number(match.date_unix) * 1000;
+  if (status !== 'scheduled' || !(kickoff > Date.now()) || !analysis || index >= 0) return;
+  const probabilities = {
+    '1': Number(analysis.outcomes.home),
+    'X': Number(analysis.outcomes.draw),
+    '2': Number(analysis.outcomes.away)
+  };
+  if (!Object.values(probabilities).every(Number.isFinite)) return;
+  const best = Object.entries(probabilities).sort((a,b) => b[1]-a[1])[0][0];
+  const row = {
+    id, home: teamName(match,'home'), away: teamName(match,'away'),
+    kickoff: new Date(kickoff).toISOString(), league: first(match.league?.name,match.league_name,'Liqa'),
+    probabilities, best, exactScore: analysis.scores?.[0]?.score || null,
+    xg: [analysis.hx,analysis.ax], consensus: globalConsensusText(match,analysis,feeds),
+    savedAt: new Date().toISOString(), result: null
+  };
+  rows.push(row);
+  writePredictionHistory(rows);
+}
+function renderPredictionHistory() {
+  const rows = readPredictionHistory();
+  const completed = rows.filter(row => row.result && row.probabilities);
+  const metrics = document.querySelectorAll('#history .metrics > div b');
+  if (completed.length) {
+    let hits=0, exact=0, brier=0, logLoss=0;
+    completed.forEach(row => {
+      if (row.best === row.result.outcome) hits++;
+      if (row.exactScore === row.result.exact) exact++;
+      const p=row.probabilities, actual=row.result.outcome;
+      brier += ['1','X','2'].reduce((sum,key) => sum + Math.pow((Number(p[key])||0)/100 - (key===actual?1:0),2),0);
+      logLoss += -Math.log(Math.max(0.000001,(Number(p[actual])||0)/100));
+    });
+    const values=[(hits/completed.length*100).toFixed(1)+'%',(exact/completed.length*100).toFixed(1)+'%',(brier/completed.length).toFixed(3),(logLoss/completed.length).toFixed(3)];
+    metrics.forEach((el,i)=>{ if(values[i]) el.textContent=values[i]; });
+  } else {
+    metrics.forEach(el=>{el.textContent='—';});
+  }
+  const list=document.getElementById('historyList');
+  if(!list) return;
+  list.replaceChildren();
+  const latest=[...rows].sort((a,b)=>Date.parse(b.kickoff)-Date.parse(a.kickoff)).slice(0,20);
+  if(!latest.length){
+    const empty=document.createElement('p'); empty.className='muted'; empty.textContent='Hələ saxlanmış proqnoz yoxdur. Oyun başlamazdan əvvəl təqvim yüklənəndə proqnoz avtomatik qeydə alınacaq.'; list.append(empty); return;
+  }
+  latest.forEach(row=>{
+    const item=document.createElement('article'); item.className='history-item';
+    const title=document.createElement('strong'); title.textContent=row.home+' — '+row.away;
+    const date=document.createElement('div'); date.className='meta';
+    date.textContent=new Date(row.kickoff).toLocaleString('az-AZ',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baku'})+' · Bakı · '+row.league;
+    const forecast=document.createElement('div'); forecast.className='history-detail';
+    forecast.textContent='Saxlanmış proqnoz: 1 '+percent(row.probabilities['1'])+' · X '+percent(row.probabilities.X)+' · 2 '+percent(row.probabilities['2'])+' | seçim: '+row.best+' | hesab: '+(row.exactScore||'—');
+    const result=document.createElement('div'); result.className='meta';
+    result.textContent=row.result?'Nəticə: '+row.result.exact+' · '+(row.best===row.result.outcome?'1-X-2 düzgün':'1-X-2 səhv')+' · '+(row.exactScore===row.result.exact?'dəqiq hesab düzgün':'dəqiq hesab səhv'):'Nəticə gözlənilir';
+    item.append(title,date,forecast,result); list.append(item);
+  });
+  const note=document.getElementById('historyNote');
+  if(note) note.textContent='Tarixçə bu brauzerdə saxlanılır ('+rows.length+' oyun). Eyni telefonda və brauzerdə qalır; brauzer məlumatları silinsə tarixçə də silinə bilər.';
+}
+
 function renderEmpty(title, detail) {
   matchesBox.className = 'empty'; matchesBox.replaceChildren();
   const icon = document.createElement('div'); icon.className = 'empty-icon'; icon.textContent = '⌁';
@@ -396,6 +494,8 @@ async function loadFixtures() {
       });
     }
     const globalPicks = await globalPicksPromiseForDate;
+    enrichedGames.forEach(match => recordPredictionHistory(match, matchAnalysis(match), globalPicks));
+    renderPredictionHistory();
     // Repeated identical provider 1X2 triples across separate fixtures can indicate
     // a fallback/default response. Suppress them rather than presenting false precision.
     const probabilityCounts = new Map();
@@ -476,6 +576,7 @@ async function loadFixtures() {
   } catch (error) { console.error('Fixture loading failed:', error); renderEmpty('Məlumat yüklənmədi', error.name === 'TimeoutError' ? error.message : (error.message || 'Şəbəkə bağlantısı kəsildi.')); }
 }
 document.getElementById('refresh')?.addEventListener('click', loadFixtures);
+renderPredictionHistory();
 document.getElementById('loadDate')?.addEventListener('click', loadFixtures);
 dateInput.addEventListener('change', loadFixtures);
 document.getElementById('leagueFilter')?.addEventListener('change', loadFixtures);
