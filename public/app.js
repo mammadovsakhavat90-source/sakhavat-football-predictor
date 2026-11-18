@@ -38,6 +38,50 @@ function matchTime(match) {
     hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Baku'
   }) + ' · Bakı';
 }
+
+function poissonProbability(lambda, goals) {
+  let p = Math.exp(-lambda);
+  for (let i = 1; i <= goals; i++) p *= lambda / i;
+  return p;
+}
+function matchAnalysis(match) {
+  const hx = Number(match.xg?.prematch?.home);
+  const ax = Number(match.xg?.prematch?.away);
+  const odds = match.odds?.match_winner || {};
+  const provider = match.probabilities || {};
+  if (!(hx > 0 && hx <= 4.5 && ax > 0 && ax <= 4.5)) return null;
+  let outcomes = { home: 0, draw: 0, away: 0 };
+  const scores = [];
+  let total = 0;
+  for (let h = 0; h <= 8; h++) for (let a = 0; a <= 8; a++) {
+    let p = poissonProbability(hx, h) * poissonProbability(ax, a);
+    const rho = -0.08;
+    if (h === 0 && a === 0) p *= 1 - hx * ax * rho;
+    else if (h === 0 && a === 1) p *= 1 + hx * rho;
+    else if (h === 1 && a === 0) p *= 1 + ax * rho;
+    else if (h === 1 && a === 1) p *= 1 - rho;
+    total += p;
+    if (h > a) outcomes.home += p;
+    else if (h === a) outcomes.draw += p;
+    else outcomes.away += p;
+    scores.push({ score: h + '-' + a, p });
+  }
+  for (const key of Object.keys(outcomes)) outcomes[key] = outcomes[key] / total * 100;
+  scores.sort((a, b) => b.p - a.p);
+  const keys = ['home', 'draw', 'away'];
+  const labels = { home: '1', draw: 'X', away: '2' };
+  let market = null;
+  const raw = keys.map(k => Number(odds[k]));
+  if (raw.every(v => Number.isFinite(v) && v > 1)) {
+    const inv = raw.map(v => 1 / v), sum = inv.reduce((a, b) => a + b, 0);
+    market = Object.fromEntries(keys.map((k, i) => [k, inv[i] / sum * 100]));
+  }
+  const best = keys.reduce((a, b) => outcomes[a] >= outcomes[b] ? a : b);
+  const edge = market ? outcomes[best] - market[best] : null;
+  return { hx, ax, outcomes, scores: scores.slice(0, 2), market, provider, best, edge, labels };
+}
+function percent(value) { return Number.isFinite(Number(value)) ? Number(value).toFixed(1) + '%' : '—'; }
+
 function renderEmpty(title, detail) {
   matchesBox.className = 'empty'; matchesBox.replaceChildren();
   const icon = document.createElement('div'); icon.className = 'empty-icon'; icon.textContent = '⌁';
@@ -82,7 +126,37 @@ async function loadFixtures() {
       score.textContent = (state === 'live' || state === 'finished') &&
         homeScore !== undefined && awayScore !== undefined
         ? homeScore + ' : ' + awayScore : 'VS';
-      card.append(left, score); matchesBox.append(card);
+      card.append(left, score);
+      const analysis = matchAnalysis(match);
+      if (analysis) {
+        const detail = document.createElement('div'); detail.className = 'match-analysis';
+        const modelLine = document.createElement('div'); modelLine.textContent =
+          'SAKHAVAT MODEL (xG · Poisson/DC): 1 ' + percent(analysis.outcomes.home) +
+          ' · X ' + percent(analysis.outcomes.draw) + ' · 2 ' + percent(analysis.outcomes.away);
+        const marketLine = document.createElement('div'); marketLine.textContent = analysis.market
+          ? 'BAZAR (marjasız): 1 ' + percent(analysis.market.home) + ' · X ' + percent(analysis.market.draw) + ' · 2 ' + percent(analysis.market.away)
+          : 'BAZAR: əmsal məlumatı yoxdur';
+        const providerLine = document.createElement('div'); providerLine.textContent =
+          'PROVIDER EHTİMALI: 1 ' + percent(analysis.provider.home_win) +
+          ' · X ' + percent(analysis.provider.draw) + ' · 2 ' + percent(analysis.provider.away_win);
+        const verdict = document.createElement('div'); verdict.className = 'verdict';
+        verdict.textContent = analysis.edge === null ? 'FINAL VERDICT: bazar müqayisəsi mümkün deyil' :
+          Math.abs(analysis.edge) < 3 ? 'FINAL VERDICT: aydın statistik üstünlük yoxdur' :
+          'FINAL VERDICT: ' + (analysis.edge > 0 ? '1/X/2 ' + analysis.labels[analysis.best] + ' istiqamətində model üstünlüyü' : 'bazar modeldən daha güclüdür') +
+          ' (' + (analysis.edge > 0 ? '+' : '') + analysis.edge.toFixed(1) + faiz bəndi)';
+        const scoresLine = document.createElement('div'); scoresLine.textContent =
+          'Ən ehtimallı hesablar: ' + analysis.scores.map(x => x.score).join(' · ') +
+          ' | xG: ' + analysis.hx.toFixed(2) + ' - ' + analysis.ax.toFixed(2);
+        const consensus = document.createElement('div'); consensus.className = 'meta';
+        consensus.textContent = 'GLOBAL CONSENSUS: aktiv deyil · yalnız 1 provayder mənbəyi var';
+        detail.append(modelLine, marketLine, providerLine, verdict, scoresLine, consensus);
+        card.append(detail);
+      } else {
+        const note = document.createElement('div'); note.className = 'match-analysis meta';
+        note.textContent = 'SAKHAVAT MODEL: matçöncəsi xG məlumatı yoxdur; proqnoz hesablanmadı.';
+        card.append(note);
+      }
+      matchesBox.append(card);
     });
   } catch (error) { renderEmpty('Məlumat yüklənmədi', error.message); }
 }
