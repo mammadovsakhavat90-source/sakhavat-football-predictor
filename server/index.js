@@ -45,7 +45,7 @@ app.get('/api/matches/:id/:kind',(req,res)=>{
  return providerGet('/matches/'+req.params.id+'/'+req.params.kind,res);
 });
 
-app.get('/api/status',(_req,res)=>res.json({ok:true,app:'SAKHAVAT FOOTBALL PREDICTOR 1.0',apiConfigured:Boolean(API_KEY),provider:'Footballdata.io',predictionEngine:'Poisson + Dixon-Coles + Elo',predictionMode:'requires_verified_team_statistics'}));
+app.get('/api/status',(_req,res)=>res.json({ok:true,app:'SAKHAVAT FOOTBALL PREDICTOR 1.0',apiConfigured:Boolean(API_KEY),provider:'Footballdata.io',predictionEngine:'Frontend: xG + Poisson + Dixon-Coles; Elo: separate backend endpoint',predictionMode:'xG-based; no verified Elo ratings in frontend'}));
 app.get('/api/fixtures',(req,res)=>{const date=req.query.date,leagueId=req.query.league_id;if(!date||!/^\d{4}-\d{2}-\d{2}$/.test(date))return res.status(400).json({ok:false,error:'Use date=YYYY-MM-DD'});const params=new URLSearchParams({date});if(leagueId)params.set('league_id',leagueId);return footballData(`/matches?${params.toString()}`,res);});
 app.post('/api/predict',(req,res)=>{try{if(!req.body||typeof req.body!=='object'||Array.isArray(req.body))return res.status(400).json({ok:false,error:'JSON statistik girişləri tələb olunur.'});return res.json({ok:true,prediction:predict(req.body)});}catch(error){return res.status(400).json({ok:false,error:error.message});}});
 app.listen(PORT,()=>console.log(`SAKHAVAT FOOTBALL PREDICTOR running on port ${PORT}`));
