@@ -26,22 +26,22 @@ app.get('/api/teams/search',(req,res)=>{
  return providerGet('/teams?'+new URLSearchParams({q}),res);
 });
 app.get('/api/teams/:id/stats',(req,res)=>{
- if(!/^\\d+$/.test(req.params.id))return res.status(400).json({ok:false,error:'Yanlış team id.'});
+ if(!/^\d+$/.test(req.params.id))return res.status(400).json({ok:false,error:'Yanlış team id.'});
  const params=new URLSearchParams();
- if(req.query.season_id&&/^\\d+$/.test(String(req.query.season_id)))params.set('season_id',req.query.season_id);
- if(req.query.league_id&&/^\\d+$/.test(String(req.query.league_id)))params.set('league_id',req.query.league_id);
+ if(req.query.season_id&&/^\d+$/.test(String(req.query.season_id)))params.set('season_id',req.query.season_id);
+ if(req.query.league_id&&/^\d+$/.test(String(req.query.league_id)))params.set('league_id',req.query.league_id);
  return providerGet('/teams/'+req.params.id+'/stats'+(params.size?'?'+params.toString():''),res);
 });
 app.get('/api/teams/:id/matches',(req,res)=>{
- if(!/^\\d+$/.test(req.params.id))return res.status(400).json({ok:false,error:'Yanlış team id.'});
+ if(!/^\d+$/.test(req.params.id))return res.status(400).json({ok:false,error:'Yanlış team id.'});
  return providerGet('/teams/'+req.params.id+'/matches',res);
 });
 app.get('/api/matches/:id',(req,res)=>{
- if(!/^\\d+$/.test(req.params.id))return res.status(400).json({ok:false,error:'Yanlış match id.'});
+ if(!/^\d+$/.test(req.params.id))return res.status(400).json({ok:false,error:'Yanlış match id.'});
  return providerGet('/matches/'+req.params.id,res);
 });
 app.get('/api/matches/:id/:kind',(req,res)=>{
- if(!/^\\d+$/.test(req.params.id)||!['stats','odds','probabilities','events'].includes(req.params.kind))return res.status(400).json({ok:false,error:'Yanlış match sorğusu.'});
+ if(!/^\d+$/.test(req.params.id)||!['stats','odds','probabilities','events'].includes(req.params.kind))return res.status(400).json({ok:false,error:'Yanlış match sorğusu.'});
  return providerGet('/matches/'+req.params.id+'/'+req.params.kind,res);
 });
 
