@@ -142,11 +142,14 @@ function normalize1x2(probabilities) {
     Number(winner.draw),
     Number(winner.away_win ?? winner.away)
   ];
-  if (!values.every(Number.isFinite) || values.some(v => v < 0 || v > 100) ||
-      values.some(v => v === 0) || values.reduce((a,b) => a+b, 0) < 85 ||
-      values.reduce((a,b) => a+b, 0) > 115) return null;
+  if (!values.every(Number.isFinite) || values.some(v => v <= 0 || v > 100)) return null;
   // Some feeds express probabilities as fractions (0-1), others as percentages.
-  if (values.every(v => v <= 1)) values = values.map(v => v * 100);
+  const initialSum = values.reduce((a,b) => a+b, 0);
+  if (values.every(v => v <= 1) && initialSum >= .85 && initialSum <= 1.15) {
+    values = values.map(v => v * 100);
+  }
+  const checkedSum = values.reduce((a,b) => a+b, 0);
+  if (checkedSum < 85 || checkedSum > 115) return null;
   const sum = values.reduce((a,b) => a+b, 0);
   return { home_win: values[0] / sum * 100, draw: values[1] / sum * 100,
     away_win: values[2] / sum * 100 };
@@ -226,8 +229,8 @@ function matchAnalysis(match) {
     hx = providerHx > 0 ? providerHx * .65 + statsHx * .35 : statsHx;
     ax = providerAx > 0 ? providerAx * .65 + statsAx * .35 : statsAx;
   }
-  const odds = match.odds?.match_winner || {};
-  const provider = match.probabilities || {};
+  const odds = normalizeOdds(match.odds)?.match_winner || {};
+  const provider = normalize1x2(match.probabilities) || {};
   if (!(hx > 0 && hx <= 4.5 && ax > 0 && ax <= 4.5)) return null;
   let outcomes = { home: 0, draw: 0, away: 0 };
   const scores = [];
@@ -323,8 +326,9 @@ async function loadFixtures() {
         const [odds, probabilities] = await Promise.all([oddsPromise, probabilitiesPromise]);
         enrichedGames.push({
           ...match,
-          ...(odds ? { odds } : {}),
-          ...(probabilities ? { probabilities } : {})
+          ...(normalizeOdds(odds || match.odds) ? { odds: normalizeOdds(odds || match.odds) } : {}),
+          ...(normalize1x2(probabilities || match.probabilities)
+            ? { probabilities: normalize1x2(probabilities || match.probabilities) } : {})
         });
         continue;
       }
@@ -336,8 +340,10 @@ async function loadFixtures() {
       ]);
       enrichedGames.push({
         ...match,
-        ...(fetchedOdds ? { odds: fetchedOdds } : {}),
-        ...(fetchedProbabilities ? { probabilities: fetchedProbabilities } : {}),
+        ...(normalizeOdds(fetchedOdds || match.odds)
+          ? { odds: normalizeOdds(fetchedOdds || match.odds) } : {}),
+        ...(normalize1x2(fetchedProbabilities || match.probabilities)
+          ? { probabilities: normalize1x2(fetchedProbabilities || match.probabilities) } : {}),
         _teamStats: { home: homeStats, away: awayStats }
       });
     }
