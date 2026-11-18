@@ -8,7 +8,7 @@ function decodeText(value) {
   let text = String(value ?? '');
   for (let i = 0; i < 3; i++) {
     text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'");
+      .replace(/&quot;/g, '"').replace(/&#0*39;|&apos;/g, "'");
   }
   return text;
 }
