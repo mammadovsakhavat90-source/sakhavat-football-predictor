@@ -109,7 +109,7 @@ async function loadFixtures() {
     const params = new URLSearchParams({ date: dateInput.value });
     const league = document.getElementById('leagueFilter')?.value;
     if (league) params.set('league_id', league);
-    const response = await fetch('/api/fixtures?' + params.toString(), { cache: 'no-store' });
+    const response = await fetch('/api/fixtures?' + params.toString(), { cache: 'no-store', signal: AbortSignal.timeout(20000) });
     const data = await response.json();
     if (!response.ok || data.ok === false) throw new Error(data.error || 'Məlumat alınmadı');
     const games = Array.isArray(data.matches) ? data.matches :
@@ -166,7 +166,7 @@ async function loadFixtures() {
       }
       matchesBox.append(card);
     });
-  } catch (error) { renderEmpty('Məlumat yüklənmədi', error.message); }
+  } catch (error) { renderEmpty('Məlumat yüklənmədi', error.name === 'TimeoutError' ? 'Server 20 saniyə ərzində cavab vermədi. Yenilə düyməsini yenidən yoxla.' : error.message || 'Şəbəkə bağlantısı kəsildi.'); }
 }
 document.getElementById('refresh')?.addEventListener('click', loadFixtures);
 document.getElementById('loadDate')?.addEventListener('click', loadFixtures);
