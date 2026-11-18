@@ -97,9 +97,28 @@ function renderEmpty(title, detail) {
   const p = document.createElement('p'); p.textContent = detail;
   matchesBox.append(icon, heading, p);
 }
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timer;
+  try {
+    const request = fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        if (controller) controller.abort();
+        const error = new Error('Sorğu ' + Math.round(timeoutMs / 1000) + ' saniyəyə cavab vermədi.');
+        error.name = 'TimeoutError';
+        reject(error);
+      }, timeoutMs);
+    });
+    return await Promise.race([request, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function checkConnection() {
   try {
-    const r = await fetch('/api/status', { cache: 'no-store' }); const d = await r.json();
+    const r = await fetchWithTimeout('/api/status', { cache: 'no-store' }, 10000); const d = await r.json();
     connection.textContent = d.apiConfigured ? 'API aktivdir · ' + (d.provider || 'Provider') : 'API açarı yoxdur';
   } catch { connection.textContent = 'Bağlantı xətası'; }
 }
@@ -109,7 +128,7 @@ async function loadFixtures() {
     const params = new URLSearchParams({ date: dateInput.value });
     const league = document.getElementById('leagueFilter')?.value;
     if (league) params.set('league_id', league);
-    const response = await fetch('/api/fixtures?' + params.toString(), { cache: 'no-store', signal: AbortSignal.timeout(20000) });
+    const response = await fetchWithTimeout('/api/fixtures?' + params.toString(), { cache: 'no-store' }, 18000);
     const data = await response.json();
     if (!response.ok || data.ok === false) throw new Error(data.error || 'Məlumat alınmadı');
     const games = Array.isArray(data.matches) ? data.matches :
@@ -166,7 +185,7 @@ async function loadFixtures() {
       }
       matchesBox.append(card);
     });
-  } catch (error) { renderEmpty('Məlumat yüklənmədi', error.name === 'TimeoutError' ? 'Server 20 saniyə ərzində cavab vermədi. Yenilə düyməsini yenidən yoxla.' : error.message || 'Şəbəkə bağlantısı kəsildi.'); }
+  } catch (error) { console.error('Fixture loading failed:', error); renderEmpty('Məlumat yüklənmədi', error.name === 'TimeoutError' ? error.message : (error.message || 'Şəbəkə bağlantısı kəsildi.')); }
 }
 document.getElementById('refresh')?.addEventListener('click', loadFixtures);
 document.getElementById('loadDate')?.addEventListener('click', loadFixtures);
