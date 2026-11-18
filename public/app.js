@@ -1,111 +1,105 @@
-
 const dateInput = document.getElementById('matchDate');
 const matchesBox = document.getElementById('matchList');
 const connection = document.getElementById('connection');
 
-const today = new Date();
-dateInput.value = new Date(
-  today.getTime() - today.getTimezoneOffset() * 60000
-).toISOString().slice(0, 10);
+const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
+dateInput.value = localToday.toISOString().slice(0, 10);
+
+const first = (...values) => values.find(v => v !== undefined && v !== null && String(v).trim() !== '');
+
+function teamName(match, side) {
+  const team = match[side + '_team'] || match[side] || {};
+  if (typeof team === 'string') return team;
+  return first(team.team_name, team.name, team.display_name, match[side + '_team_name'],
+    match[side + '_name'], match[side + '_team'], side === 'home' ? 'Ev sahibi' : 'Qonaq');
+}
+
+function matchTime(match) {
+  const raw = first(match.match_date, match.date, match.kickoff, match.start_time);
+  if (!raw) return 'Vaxt göstərilməyib';
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleTimeString('az-AZ', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Baku'
+  }) + ' · Bakı';
+}
+
+function statusLabel(match) {
+  const s = String(first(match.status_localized, match.status, match.state, '')).toLowerCase();
+  if (/finish|complete|ended|full/.test(s)) return 'Başa çatıb';
+  if (/live|progress|half/.test(s)) return 'Canlı';
+  if (/postpon|cancel|abandon/.test(s)) return 'Təxirə salınıb';
+  return 'Başlamayıb';
+}
+
+function renderEmpty(title, detail) {
+  matchesBox.className = 'empty';
+  matchesBox.replaceChildren();
+  const icon = document.createElement('div'); icon.className = 'empty-icon'; icon.textContent = '⌁';
+  const heading = document.createElement('b'); heading.textContent = title;
+  const p = document.createElement('p'); p.textContent = detail;
+  matchesBox.append(icon, heading, p);
+}
 
 async function checkConnection() {
   try {
-    const response = await fetch('/api/status');
-    const data = await response.json();
-
-    connection.textContent = data.apiConfigured
-      ? 'API aktivdir · ' + data.provider
-      : 'API açarı yoxdur';
-  } catch {
-    connection.textContent = 'Bağlantı xətası';
-  }
-}
-
-function getTeam(match, side) {
-  return match[side + '_team']?.team_name ||
-    match[side + '_team']?.name ||
-    match[side]?.name ||
-    match[side + '_team_name'] ||
-    (side === 'home' ? 'Ev sahibi' : 'Qonaq');
+    const r = await fetch('/api/status', { cache: 'no-store' });
+    const d = await r.json();
+    connection.textContent = d.apiConfigured ? 'API aktivdir · ' + (d.provider || 'Provider') : 'API açarı yoxdur';
+  } catch { connection.textContent = 'Bağlantı xətası'; }
 }
 
 async function loadFixtures() {
-  matchesBox.className = 'empty';
-  matchesBox.textContent = 'Oyunlar yüklənir...';
-
+  renderEmpty('Oyunlar yüklənir...', 'Məlumat provayderdən alınır.');
   try {
-    const response = await fetch(
-      `/api/fixtures?date=${encodeURIComponent(dateInput.value)}`
-    );
-
+    const params = new URLSearchParams({ date: dateInput.value });
+    const league = document.getElementById('leagueFilter')?.value;
+    if (league) params.set('league_id', league);
+    const response = await fetch('/api/fixtures?' + params.toString(), { cache: 'no-store' });
     const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || 'Məlumat alınmadı');
 
-    if (!response.ok || data.ok === false) {
-      throw new Error(data.error || 'Məlumat alınmadı');
-    }
-
-    const games = data.matches || [];
-
-    matchesBox.innerHTML = '';
-
+    const games = Array.isArray(data.matches) ? data.matches :
+      Array.isArray(data.providerData?.data?.matches) ? data.providerData.data.matches : [];
     if (!games.length) {
-      matchesBox.className = 'empty';
-      matchesBox.innerHTML =
-        '<div class="empty-icon">⌁</div>' +
-        '<b>Bu tarixdə oyun tapılmadı</b>' +
-        '<p>Seçilmiş liqalar üzrə provayder məlumat qaytarmadı.</p>';
+      renderEmpty('Bu tarixdə oyun tapılmadı', 'Provayder bu tarix və seçilmiş liqa üçün oyun qaytarmadı. Başqa tarix seçin.');
       return;
     }
 
-    matchesBox.className = '';
-
+    matchesBox.className = 'fixture-list';
+    matchesBox.replaceChildren();
     games.forEach(match => {
-      const card = document.createElement('article');
-      card.className = 'fixture';
-
-      const teams = document.createElement('div');
-      teams.className = 'teams';
-      teams.textContent =
-        `${getTeam(match, 'home')} — ${getTeam(match, 'away')}`;
-
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.textContent =
-        match.league?.name ||
-        match.league_name ||
-        'Liqa məlumatı yoxdur';
-
-      const result = document.createElement('strong');
-      const score = match.score;
-
-      result.textContent =
-        score && score.home != null && score.away != null
-          ? `${score.home} - ${score.away}`
-          : 'Nəticə gözlənilir';
-
-      card.append(teams, meta, result);
-      matchesBox.appendChild(card);
+      const card = document.createElement('article'); card.className = 'fixture';
+      const left = document.createElement('div'); left.className = 'fixture-main';
+      const league = document.createElement('div'); league.className = 'meta';
+      league.textContent = first(match.league?.name, match.league_name, match.competition?.name, 'Liqa');
+      const teams = document.createElement('div'); teams.className = 'teams';
+      teams.textContent = teamName(match, 'home') + '  —  ' + teamName(match, 'away');
+      const meta = document.createElement('div'); meta.className = 'meta';
+      meta.textContent = matchTime(match) + ' · ' + statusLabel(match);
+      left.append(league, teams, meta);
+      const score = document.createElement('strong'); score.className = 'score';
+      const sc = match.score || match.result || {};
+      const homeScore = first(sc.home, sc.home_score, match.home_score);
+      const awayScore = first(sc.away, sc.away_score, match.away_score);
+      score.textContent = homeScore !== undefined && awayScore !== undefined ? homeScore + ' : ' + awayScore : 'VS';
+      card.append(left, score); matchesBox.append(card);
     });
-
   } catch (error) {
-    matchesBox.className = 'empty';
-    matchesBox.textContent = 'Xəta: ' + error.message;
+    renderEmpty('Məlumat yüklənmədi', error.message);
   }
 }
 
-document.getElementById('refresh')
-  ?.addEventListener('click', loadFixtures);
-
-document.getElementById('loadDate')
-  .addEventListener('click', loadFixtures);
-
+document.getElementById('refresh')?.addEventListener('click', loadFixtures);
+document.getElementById('loadDate')?.addEventListener('click', loadFixtures);
 dateInput.addEventListener('change', loadFixtures);
+document.getElementById('leagueFilter')?.addEventListener('change', loadFixtures);
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  });
-}
+document.querySelectorAll('.tab').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === button));
+  document.querySelectorAll('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
+}));
 
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 checkConnection();
 loadFixtures();
+setInterval(() => { if (document.visibilityState === 'visible') { checkConnection(); loadFixtures(); } }, 300000);
