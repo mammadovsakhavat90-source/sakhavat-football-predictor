@@ -66,6 +66,58 @@ function poissonProbability(lambda, goals) {
   for (let i = 1; i <= goals; i++) p *= lambda / i;
   return p;
 }
+let globalPicksPromise = null;
+function normalizeTeamLabel(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(fc|afc|cf|sc|ac|the)\b/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function teamLabelsMatch(a, b) {
+  const x = normalizeTeamLabel(a), y = normalizeTeamLabel(b);
+  return !!x && !!y && (x === y || x.endsWith(' ' + y) || y.endsWith(' ' + x));
+}
+async function fetchGlobalPicks() {
+  if (!globalPicksPromise) {
+    globalPicksPromise = fetchWithTimeout('https://footballanalytics.pro/data/upcoming.json',
+      { cache: 'no-store' }, 7000).then(async response => {
+        if (!response.ok) return [];
+        const payload = await response.json();
+        return Array.isArray(payload.data) ? payload.data : [];
+      }).catch(() => []);
+  }
+  return globalPicksPromise;
+}
+function findGlobalPick(match, rows) {
+  const kickoff = Number(match.date_unix) * 1000;
+  if (!(kickoff > 0)) return null;
+  const home = teamName(match, 'home'), away = teamName(match, 'away');
+  return rows.find(row => {
+    const externalTime = Date.parse(row.kickoff_utc || '');
+    return Number.isFinite(externalTime) && Math.abs(externalTime - kickoff) <= 4 * 60 * 60 * 1000 &&
+      teamLabelsMatch(home, row.home_team) && teamLabelsMatch(away, row.away_team) &&
+      ['1', 'X', '2'].includes(String(row.pick).toUpperCase());
+  }) || null;
+}
+function globalConsensusText(match, analysis, rows) {
+  const external = findGlobalPick(match, rows);
+  const provider = analysis.provider || {};
+  const values = [Number(provider.home_win), Number(provider.draw), Number(provider.away_win)];
+  const providerAvailable = values.every(Number.isFinite) && values.every(v => v >= 0) &&
+    values.some(v => v > 0);
+  const providerPick = providerAvailable
+    ? ['1', 'X', '2'][values.indexOf(Math.max(...values))] : null;
+  const providerText = providerPick ? 'Footballdata.io: ' + providerPick : null;
+  const externalText = external ? 'Football Analytics: ' + String(external.pick).toUpperCase() : null;
+  if (providerText && externalText) return 'GLOBAL CONSENSUS: ' +
+    (providerPick === String(external.pick).toUpperCase()
+      ? '2/2 mənbə eyni istiqaməti göstərir · ' + providerPick
+      : 'mənbələr fərqli istiqamət göstərir') + ' | ' + providerText + ' · ' + externalText;
+  if (externalText) return 'GLOBAL CONSENSUS: 1 xarici model pick-i · ' + externalText +
+    ' | ikinci ehtimal mənbəyi yoxdur';
+  if (providerText) return 'GLOBAL CONSENSUS: yalnız Footballdata.io ehtimalı mövcuddur · ' +
+    providerText + ' | xarici model pick-i tapılmadı';
+  return 'GLOBAL CONSENSUS: bu oyun üçün kifayət qədər müstəqil mənbə məlumatı yoxdur';
+}
 const teamStatsCache = new Map();
 const matchOddsCache = new Map();
 async function fetchMatchOdds(matchId) {
@@ -199,6 +251,7 @@ async function loadFixtures() {
       Array.isArray(data.providerData?.data?.matches) ? data.providerData.data.matches : [];
     if (!games.length) { renderEmpty('Bu tarixdə oyun tapılmadı', 'Provayder bu tarix və seçilmiş liqa üçün oyun qaytarmadı.'); return; }
     // Fetch same-competition, same-season team xG; cache each team for this page session.
+    const globalPicksPromiseForDate = fetchGlobalPicks();
     const enrichedGames = [];
     for (const match of games) {
       const leagueId = match.league?.league_id, seasonId = match.season?.season_id;
@@ -223,6 +276,7 @@ async function loadFixtures() {
         _teamStats: { home: homeStats, away: awayStats }
       });
     }
+    const globalPicks = await globalPicksPromiseForDate;
     matchesBox.className = 'fixture-list'; matchesBox.replaceChildren();
     enrichedGames.forEach(match => {
       const card = document.createElement('article'); card.className = 'fixture';
@@ -271,7 +325,7 @@ async function loadFixtures() {
             ' | forma: ' + (hs.form || '—') + ' / ' + (as.form || '—')
           : 'TEAM xG: kifayət qədər təsdiqlənmiş komanda statistikası tapılmadı';
         const consensus = document.createElement('div'); consensus.className = 'meta';
-        consensus.textContent = 'GLOBAL CONSENSUS: aktiv deyil · müstəqil ikinci proqnoz mənbəyi qoşulmayıb';
+        consensus.textContent = globalConsensusText(match, analysis, globalPicks);
         detail.append(modelLine, marketLine, providerLine, verdict, scoresLine, statsLine, consensus);
         card.append(detail);
       } else {
