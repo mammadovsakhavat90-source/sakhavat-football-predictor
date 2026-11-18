@@ -67,6 +67,7 @@ function poissonProbability(lambda, goals) {
   return p;
 }
 let globalPicksPromise = null, globalPicksCache = null, globalPicksFetchedAt = 0;
+const kiqiqCache = new Map();
 function normalizeTeamLabel(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ')
@@ -90,6 +91,26 @@ async function fetchGlobalPicks() {
   }
   return globalPicksPromise;
 }
+async function fetchKiqiqPredictions(selectedDate) {
+  if (!selectedDate) return [];
+  if (kiqiqCache.has(selectedDate)) return kiqiqCache.get(selectedDate);
+  const promise = (async () => {
+    try {
+      // Include the previous UTC day because late-night Baku fixtures can fall on
+      // the previous calendar day in UTC.
+      const fromDate = new Date(Date.parse(selectedDate + 'T00:00:00Z') - 86400000)
+        .toISOString().slice(0, 10);
+      const params = new URLSearchParams({ from: fromDate, to: selectedDate, limit: '100' });
+      const response = await fetchWithTimeout('https://kiqiq.com/api/v1/predictions?' + params,
+        { cache: 'no-store' }, 8000);
+      if (!response.ok) return [];
+      const payload = await response.json();
+      return Array.isArray(payload.fixtures) ? payload.fixtures : [];
+    } catch { return []; }
+  })();
+  kiqiqCache.set(selectedDate, promise);
+  return promise;
+}
 function findGlobalPick(match, rows) {
   const kickoff = Number(match.date_unix) * 1000;
   if (!(kickoff > 0)) return null;
@@ -101,25 +122,50 @@ function findGlobalPick(match, rows) {
       ['1', 'X', '2'].includes(String(row.pick).toUpperCase());
   }) || null;
 }
-function globalConsensusText(match, analysis, rows) {
-  const external = findGlobalPick(match, rows);
+function findKiqiqPrediction(match, rows) {
+  const kickoff = Number(match.date_unix) * 1000;
+  if (!(kickoff > 0)) return null;
+  const home = teamName(match, 'home'), away = teamName(match, 'away');
+  return rows.find(row => {
+    const externalTime = Date.parse(row.kickoff_iso || '');
+    return Number.isFinite(externalTime) && Math.abs(externalTime - kickoff) <= 4 * 60 * 60 * 1000 &&
+      teamLabelsMatch(home, row.home) && teamLabelsMatch(away, row.away);
+  }) || null;
+}
+function normalizeExternalProbabilities(row) {
+  if (!row) return null;
+  let values = [Number(row.home_win_prob), Number(row.draw_prob), Number(row.away_win_prob)];
+  if (!values.every(Number.isFinite) || values.some(v => v < 0)) return null;
+  if (values.every(v => v <= 1)) values = values.map(v => v * 100);
+  const sum = values.reduce((a, b) => a + b, 0);
+  if (sum < 85 || sum > 115) return null;
+  return values.map(v => v / sum * 100);
+}
+function globalConsensusText(match, analysis, feeds) {
+  const external = findGlobalPick(match, feeds?.footballAnalytics || []);
+  const kiqiq = findKiqiqPrediction(match, feeds?.kiqiq || []);
   const provider = analysis.provider || {};
   const values = [Number(provider.home_win), Number(provider.draw), Number(provider.away_win)];
   const providerAvailable = values.every(Number.isFinite) && values.every(v => v >= 0) &&
     values.some(v => v > 0);
   const providerPick = providerAvailable
     ? ['1', 'X', '2'][values.indexOf(Math.max(...values))] : null;
-  const providerText = providerPick ? 'Footballdata.io: ' + providerPick : null;
-  const externalText = external ? 'Football Analytics: ' + String(external.pick).toUpperCase() : null;
-  if (providerText && externalText) return 'GLOBAL CONSENSUS: ' +
-    (providerPick === String(external.pick).toUpperCase()
-      ? '2/2 mənbə eyni istiqaməti göstərir · ' + providerPick
-      : 'mənbələr fərqli istiqamət göstərir') + ' | ' + providerText + ' · ' + externalText;
-  if (externalText) return 'GLOBAL CONSENSUS: 1 xarici model pick-i · ' + externalText +
-    ' | ikinci ehtimal mənbəyi yoxdur';
-  if (providerText) return 'GLOBAL CONSENSUS: yalnız Footballdata.io ehtimalı mövcuddur · ' +
-    providerText + ' | xarici model pick-i tapılmadı';
-  return 'GLOBAL CONSENSUS: Football Analytics açıq feed-ində bu oyun hələ yoxdur · əhatə və tarix pəncərəsini yoxlamaq lazımdır';
+  const kp = normalizeExternalProbabilities(kiqiq);
+  const kiqiqPick = kp ? ['1', 'X', '2'][kp.indexOf(Math.max(...kp))] : null;
+  const sources = [];
+  if (providerPick) sources.push({ name: 'Footballdata.io', pick: providerPick });
+  if (kiqiqPick) sources.push({ name: 'KiqIQ', pick: kiqiqPick });
+  if (external) sources.push({ name: 'Football Analytics', pick: String(external.pick).toUpperCase() });
+  if (!sources.length) return 'GLOBAL CONSENSUS: uyğun müstəqil proqnoz tapılmadı; mənbə əhatəsi məhduddur';
+  const counts = { '1': 0, X: 0, '2': 0 };
+  sources.forEach(source => { counts[source.pick]++; });
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  const names = sources.map(source => source.name + ': ' + source.pick).join(' · ');
+  if (sources.length === 1) return 'GLOBAL CONSENSUS: yalnız 1 mənbə mövcuddur · ' + names;
+  const agreement = top[1] === sources.length
+    ? sources.length + '/' + sources.length + ' mənbə eyni istiqamətdədir · ' + top[0]
+    : top[1] + '/' + sources.length + ' mənbənin ortaq istiqaməti · ' + top[0];
+  return 'GLOBAL CONSENSUS: ' + agreement + ' | ' + names;
 }
 const teamStatsCache = new Map();
 const matchOddsCache = new Map();
@@ -310,7 +356,8 @@ async function loadFixtures() {
       Array.isArray(data.providerData?.data?.matches) ? data.providerData.data.matches : [];
     if (!games.length) { renderEmpty('Bu tarixdə oyun tapılmadı', 'Provayder bu tarix və seçilmiş liqa üçün oyun qaytarmadı.'); return; }
     // Fetch same-competition, same-season team xG; cache each team for this page session.
-    const globalPicksPromiseForDate = fetchGlobalPicks();
+    const globalPicksPromiseForDate = Promise.all([fetchGlobalPicks(), fetchKiqiqPredictions(dateInput.value)])
+      .then(([footballAnalytics, kiqiq]) => ({ footballAnalytics, kiqiq }));
     const enrichedGames = [];
     for (const match of games) {
       const leagueId = match.league?.league_id, seasonId = match.season?.season_id;
