@@ -66,7 +66,7 @@ function poissonProbability(lambda, goals) {
   for (let i = 1; i <= goals; i++) p *= lambda / i;
   return p;
 }
-let globalPicksPromise = null;
+let globalPicksPromise = null, globalPicksCache = null, globalPicksFetchedAt = 0;
 function normalizeTeamLabel(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ')
@@ -77,13 +77,16 @@ function teamLabelsMatch(a, b) {
   return !!x && !!y && (x === y || x.endsWith(' ' + y) || y.endsWith(' ' + x));
 }
 async function fetchGlobalPicks() {
+  if (globalPicksCache && Date.now() - globalPicksFetchedAt < 900000) return globalPicksCache;
   if (!globalPicksPromise) {
     globalPicksPromise = fetchWithTimeout('https://footballanalytics.pro/data/upcoming.json',
       { cache: 'no-store' }, 7000).then(async response => {
         if (!response.ok) return [];
         const payload = await response.json();
-        return Array.isArray(payload.data) ? payload.data : [];
-      }).catch(() => []);
+        globalPicksCache = Array.isArray(payload.data) ? payload.data : [];
+        globalPicksFetchedAt = Date.now();
+        return globalPicksCache;
+      }).catch(() => []).finally(() => { globalPicksPromise = null; });
   }
   return globalPicksPromise;
 }
