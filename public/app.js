@@ -155,7 +155,15 @@ async function fetchMatchProbabilities(matchId) {
       { cache: 'no-store' }, 12000).then(async response => {
         if (!response.ok) return null;
         const payload = await response.json();
-        return unwrapMatchPayload(payload, 'probabilities');
+        const probabilities = unwrapMatchPayload(payload, 'probabilities');
+        if (!probabilities) return null;
+        const winner = probabilities.match_winner || probabilities;
+        return {
+          ...probabilities,
+          home_win: Number(winner.home_win ?? winner.home),
+          draw: Number(winner.draw),
+          away_win: Number(winner.away_win ?? winner.away)
+        };
       }).catch(() => null);
     matchProbabilityCache.set(key, request);
   }
