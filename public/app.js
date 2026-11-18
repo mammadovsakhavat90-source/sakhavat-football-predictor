@@ -128,10 +128,35 @@ function unwrapMatchPayload(payload, field) {
   if (!payload || payload.ok === false) return null;
   const roots = [payload.data, payload.providerData?.data, payload.providerData, payload].filter(Boolean);
   for (const root of roots) {
-    const value = root[field] || root.match?.[field] || root.data?.[field] || root.data?.match?.[field];
+    const value = root[field] || root.match?.[field] || root.data?.[field] ||
+      root.data?.match?.[field] || root.predictions?.[field];
     if (value && typeof value === 'object') return value;
   }
   return null;
+}
+function normalize1x2(probabilities) {
+  if (!probabilities || typeof probabilities !== 'object') return null;
+  const winner = probabilities.match_winner || probabilities;
+  let values = [
+    Number(winner.home_win ?? winner.home),
+    Number(winner.draw),
+    Number(winner.away_win ?? winner.away)
+  ];
+  if (!values.every(Number.isFinite) || values.some(v => v < 0 || v > 100) ||
+      values.some(v => v === 0) || values.reduce((a,b) => a+b, 0) < 85 ||
+      values.reduce((a,b) => a+b, 0) > 115) return null;
+  // Some feeds express probabilities as fractions (0-1), others as percentages.
+  if (values.every(v => v <= 1)) values = values.map(v => v * 100);
+  const sum = values.reduce((a,b) => a+b, 0);
+  return { home_win: values[0] / sum * 100, draw: values[1] / sum * 100,
+    away_win: values[2] / sum * 100 };
+}
+function normalizeOdds(odds) {
+  if (!odds || typeof odds !== 'object') return null;
+  const winner = odds.match_winner || odds;
+  const values = { home: Number(winner.home), draw: Number(winner.draw), away: Number(winner.away) };
+  if (!Object.values(values).every(v => Number.isFinite(v) && v > 1 && v < 1000)) return null;
+  return { ...odds, match_winner: values };
 }
 async function fetchMatchOdds(matchId) {
   if (!matchId) return null;
@@ -141,7 +166,10 @@ async function fetchMatchOdds(matchId) {
       { cache: 'no-store' }, 12000).then(async response => {
         if (!response.ok) return null;
         const payload = await response.json();
-        return unwrapMatchPayload(payload, 'odds');
+        const odds = unwrapMatchPayload(payload, 'odds');
+        const returnedId = payload?.data?.match?.match_id ?? payload?.providerData?.data?.match?.match_id;
+        if (returnedId != null && String(returnedId) !== key) return null;
+        return normalizeOdds(odds);
       }).catch(() => null);
     matchOddsCache.set(key, request);
   }
@@ -156,14 +184,9 @@ async function fetchMatchProbabilities(matchId) {
         if (!response.ok) return null;
         const payload = await response.json();
         const probabilities = unwrapMatchPayload(payload, 'probabilities');
-        if (!probabilities) return null;
-        const winner = probabilities.match_winner || probabilities;
-        return {
-          ...probabilities,
-          home_win: Number(winner.home_win ?? winner.home),
-          draw: Number(winner.draw),
-          away_win: Number(winner.away_win ?? winner.away)
-        };
+        const returnedId = payload?.data?.match?.match_id ?? payload?.providerData?.data?.match?.match_id;
+        if (returnedId != null && String(returnedId) !== key) return null;
+        return normalize1x2(probabilities);
       }).catch(() => null);
     matchProbabilityCache.set(key, request);
   }
@@ -289,10 +312,9 @@ async function loadFixtures() {
       const leagueId = match.league?.league_id, seasonId = match.season?.season_id;
       const homeId = match.home_team?.team_id, awayId = match.away_team?.team_id;
       const existingOdds = match.odds?.match_winner || {};
-      const has1x2 = ['home', 'draw', 'away'].every(k => Number(existingOdds[k]) > 1);
+      const has1x2 = !!normalizeOdds({ match_winner: existingOdds });
       const existingProbabilities = match.probabilities || {};
-      const hasProbabilities = ['home_win', 'draw', 'away_win'].some(k =>
-        Number.isFinite(Number(existingProbabilities[k])) && Number(existingProbabilities[k]) > 0);
+      const hasProbabilities = !!normalize1x2(existingProbabilities);
       const shouldEnrich = classifyStatus(match) === 'scheduled';
       const oddsPromise = !has1x2 && shouldEnrich ? fetchMatchOdds(match.match_id) : Promise.resolve(null);
       const probabilitiesPromise = !hasProbabilities && shouldEnrich
