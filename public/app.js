@@ -230,7 +230,8 @@ function matchAnalysis(match) {
     ax = providerAx > 0 ? providerAx * .65 + statsAx * .35 : statsAx;
   }
   const odds = normalizeOdds(match.odds)?.match_winner || {};
-  const provider = normalize1x2(match.probabilities) || {};
+  const provider = match._providerProbabilityRepeated
+    ? {} : (normalize1x2(match.probabilities) || {});
   if (!(hx > 0 && hx <= 4.5 && ax > 0 && ax <= 4.5)) return null;
   let outcomes = { home: 0, draw: 0, away: 0 };
   const scores = [];
@@ -348,6 +349,21 @@ async function loadFixtures() {
       });
     }
     const globalPicks = await globalPicksPromiseForDate;
+    // Repeated identical provider 1X2 triples across separate fixtures can indicate
+    // a fallback/default response. Suppress them rather than presenting false precision.
+    const probabilityCounts = new Map();
+    enrichedGames.forEach(game => {
+      const p = normalize1x2(game.probabilities);
+      if (!p) return;
+      const key = [p.home_win, p.draw, p.away_win].map(v => v.toFixed(1)).join('/');
+      probabilityCounts.set(key, (probabilityCounts.get(key) || 0) + 1);
+    });
+    enrichedGames.forEach(game => {
+      const p = normalize1x2(game.probabilities);
+      if (!p) return;
+      const key = [p.home_win, p.draw, p.away_win].map(v => v.toFixed(1)).join('/');
+      game._providerProbabilityRepeated = probabilityCounts.get(key) > 1;
+    });
     matchesBox.className = 'fixture-list'; matchesBox.replaceChildren();
     enrichedGames.forEach(match => {
       const card = document.createElement('article'); card.className = 'fixture';
@@ -378,8 +394,10 @@ async function loadFixtures() {
           ? 'BAZAR (marjasız): 1 ' + percent(analysis.market.home) + ' · X ' + percent(analysis.market.draw) + ' · 2 ' + percent(analysis.market.away)
           : 'BAZAR: əmsal məlumatı yoxdur';
         const providerLine = document.createElement('div'); providerLine.textContent =
-          'PROVIDER EHTİMALI: 1 ' + percent(analysis.provider.home_win) +
-          ' · X ' + percent(analysis.provider.draw) + ' · 2 ' + percent(analysis.provider.away_win);
+          match._providerProbabilityRepeated
+            ? 'PROVIDER EHTİMALI: eyni 1X2 göstəricisi başqa oyunlarda da təkrarlandığı üçün etibarlı mənbə kimi göstərilmir'
+            : 'PROVIDER EHTİMALI: 1 ' + percent(analysis.provider.home_win) +
+              ' · X ' + percent(analysis.provider.draw) + ' · 2 ' + percent(analysis.provider.away_win);
         const verdict = document.createElement('div'); verdict.className = 'verdict';
         verdict.textContent = analysis.edge === null ? 'FINAL VERDICT: bazar müqayisəsi mümkün deyil' :
           Math.abs(analysis.edge) < 3 ? 'FINAL VERDICT: aydın statistik üstünlük yoxdur' :
