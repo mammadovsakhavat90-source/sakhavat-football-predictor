@@ -40,11 +40,9 @@ async function footballData(endpoint, res) {
       ok: true,
       provider: 'Footballdata.io',
       providerData: data,
-      matches: data.data?.matches || (
-        Array.isArray(data.data) ? data.data : []
-      )
+      matches: data.data?.matches ||
+        (Array.isArray(data.data) ? data.data : [])
     });
-
   } catch (error) {
     return res.status(502).json({
       ok: false,
@@ -69,15 +67,20 @@ app.get('/api/fixtures', (req, res) => {
 
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return res.status(400).json({
+      ok: false,
       error: 'Use date=YYYY-MM-DD'
     });
   }
 
-  let endpoint = `/matches?date=${encodeURIComponent(date)}`;;
+  const params = new URLSearchParams({ date });
 
   if (leagueId) {
-    endpoint += `?league_id=${encodeURIComponent(leagueId)}`;
+    params.set('league_id', leagueId);
   }
 
-  return footballData(endpoint, res);
+  return footballData(`/matches?${params.toString()}`, res);
+});
+
+app.listen(PORT, () => {
+  console.log(`SAKHAVAT FOOTBALL PREDICTOR running on port ${PORT}`);
 });
