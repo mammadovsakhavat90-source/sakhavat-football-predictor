@@ -334,7 +334,9 @@ async function loadFixtures() {
       } else {
         const note = document.createElement('div'); note.className = 'match-analysis meta';
         note.textContent = 'SAKHAVAT MODEL: matçöncəsi xG məlumatı yoxdur; proqnoz hesablanmadı.';
-        card.append(note);
+        const consensus = document.createElement('div'); consensus.className = 'meta';
+        consensus.textContent = globalConsensusText(match, { provider: match.probabilities || {} }, globalPicks);
+        card.append(note, consensus);
       }
       matchesBox.append(card);
     });
