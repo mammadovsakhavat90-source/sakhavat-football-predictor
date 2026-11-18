@@ -119,10 +119,20 @@ function globalConsensusText(match, analysis, rows) {
     ' | ikinci ehtimal mənbəyi yoxdur';
   if (providerText) return 'GLOBAL CONSENSUS: yalnız Footballdata.io ehtimalı mövcuddur · ' +
     providerText + ' | xarici model pick-i tapılmadı';
-  return 'GLOBAL CONSENSUS: bu oyun üçün kifayət qədər müstəqil mənbə məlumatı yoxdur';
+  return 'GLOBAL CONSENSUS: Football Analytics açıq feed-ində bu oyun hələ yoxdur · əhatə və tarix pəncərəsini yoxlamaq lazımdır';
 }
 const teamStatsCache = new Map();
 const matchOddsCache = new Map();
+const matchProbabilityCache = new Map();
+function unwrapMatchPayload(payload, field) {
+  if (!payload || payload.ok === false) return null;
+  const roots = [payload.data, payload.providerData?.data, payload.providerData, payload].filter(Boolean);
+  for (const root of roots) {
+    const value = root[field] || root.match?.[field] || root.data?.[field] || root.data?.match?.[field];
+    if (value && typeof value === 'object') return value;
+  }
+  return null;
+}
 async function fetchMatchOdds(matchId) {
   if (!matchId) return null;
   const key = String(matchId);
@@ -131,14 +141,25 @@ async function fetchMatchOdds(matchId) {
       { cache: 'no-store' }, 12000).then(async response => {
         if (!response.ok) return null;
         const payload = await response.json();
-        if (payload.ok === false) return null;
-        const root = payload.data || payload.providerData?.data || payload.providerData || {};
-        const odds = root.odds || root.match?.odds || root.data?.odds || root.data?.match?.odds || null;
-        return odds && typeof odds === 'object' ? odds : null;
+        return unwrapMatchPayload(payload, 'odds');
       }).catch(() => null);
     matchOddsCache.set(key, request);
   }
   return matchOddsCache.get(key);
+}
+async function fetchMatchProbabilities(matchId) {
+  if (!matchId) return null;
+  const key = String(matchId);
+  if (!matchProbabilityCache.has(key)) {
+    const request = fetchWithTimeout('/api/matches/' + encodeURIComponent(key) + '/probabilities',
+      { cache: 'no-store' }, 12000).then(async response => {
+        if (!response.ok) return null;
+        const payload = await response.json();
+        return unwrapMatchPayload(payload, 'probabilities');
+      }).catch(() => null);
+    matchProbabilityCache.set(key, request);
+  }
+  return matchProbabilityCache.get(key);
 }
 async function fetchTeamStats(teamId, seasonId, leagueId) {
   if (!teamId || !seasonId || !leagueId) return null;
@@ -261,21 +282,32 @@ async function loadFixtures() {
       const homeId = match.home_team?.team_id, awayId = match.away_team?.team_id;
       const existingOdds = match.odds?.match_winner || {};
       const has1x2 = ['home', 'draw', 'away'].every(k => Number(existingOdds[k]) > 1);
-      const oddsPromise = !has1x2 && classifyStatus(match) === 'scheduled'
-        ? fetchMatchOdds(match.match_id) : Promise.resolve(null);
+      const existingProbabilities = match.probabilities || {};
+      const hasProbabilities = ['home_win', 'draw', 'away_win'].some(k =>
+        Number.isFinite(Number(existingProbabilities[k])) && Number(existingProbabilities[k]) > 0);
+      const shouldEnrich = classifyStatus(match) === 'scheduled';
+      const oddsPromise = !has1x2 && shouldEnrich ? fetchMatchOdds(match.match_id) : Promise.resolve(null);
+      const probabilitiesPromise = !hasProbabilities && shouldEnrich
+        ? fetchMatchProbabilities(match.match_id) : Promise.resolve(null);
       if (!leagueId || !seasonId || !homeId || !awayId) {
-        const odds = await oddsPromise;
-        enrichedGames.push({ ...match, ...(odds ? { odds } : {}) });
+        const [odds, probabilities] = await Promise.all([oddsPromise, probabilitiesPromise]);
+        enrichedGames.push({
+          ...match,
+          ...(odds ? { odds } : {}),
+          ...(probabilities ? { probabilities } : {})
+        });
         continue;
       }
-      const [homeStats, awayStats, fetchedOdds] = await Promise.all([
+      const [homeStats, awayStats, fetchedOdds, fetchedProbabilities] = await Promise.all([
         fetchTeamStats(homeId, seasonId, leagueId),
         fetchTeamStats(awayId, seasonId, leagueId),
-        oddsPromise
+        oddsPromise,
+        probabilitiesPromise
       ]);
       enrichedGames.push({
         ...match,
         ...(fetchedOdds ? { odds: fetchedOdds } : {}),
+        ...(fetchedProbabilities ? { probabilities: fetchedProbabilities } : {}),
         _teamStats: { home: homeStats, away: awayStats }
       });
     }
