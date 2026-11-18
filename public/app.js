@@ -4,12 +4,20 @@ const connection = document.getElementById('connection');
 const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
 dateInput.value = localToday.toISOString().slice(0, 10);
 const first = (...values) => values.find(v => v !== undefined && v !== null && String(v).trim() !== '');
+function decodeText(value) {
+  let text = String(value ?? '');
+  for (let i = 0; i < 3; i++) {
+    text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'");
+  }
+  return text;
+}
 
 function teamName(match, side) {
   const team = match[side + '_team'] || match[side] || {};
-  if (typeof team === 'string') return team;
-  return first(team.team_name, team.name, team.display_name, match[side + '_team_name'],
-    match[side + '_name'], match[side + '_team'], side === 'home' ? 'Ev sahibi' : 'Qonaq');
+  if (typeof team === 'string') return decodeText(team);
+  return decodeText(first(team.team_name, team.name, team.display_name, match[side + '_team_name'],
+    match[side + '_name'], match[side + '_team'], side === 'home' ? 'Ev sahibi' : 'Qonaq'));
 }
 function rawStatus(match) {
   return String(first(match.status, match.state, match.status_localized, '')).trim().toLowerCase();
