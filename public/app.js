@@ -67,6 +67,24 @@ function poissonProbability(lambda, goals) {
   return p;
 }
 const teamStatsCache = new Map();
+const matchOddsCache = new Map();
+async function fetchMatchOdds(matchId) {
+  if (!matchId) return null;
+  const key = String(matchId);
+  if (!matchOddsCache.has(key)) {
+    const request = fetchWithTimeout('/api/matches/' + encodeURIComponent(key) + '/odds',
+      { cache: 'no-store' }, 12000).then(async response => {
+        if (!response.ok) return null;
+        const payload = await response.json();
+        if (payload.ok === false) return null;
+        const root = payload.data || payload.providerData?.data || payload.providerData || {};
+        const odds = root.odds || root.match?.odds || root.data?.odds || root.data?.match?.odds || null;
+        return odds && typeof odds === 'object' ? odds : null;
+      }).catch(() => null);
+    matchOddsCache.set(key, request);
+  }
+  return matchOddsCache.get(key);
+}
 async function fetchTeamStats(teamId, seasonId, leagueId) {
   if (!teamId || !seasonId || !leagueId) return null;
   const key = [teamId, seasonId, leagueId].join(':');
@@ -185,11 +203,25 @@ async function loadFixtures() {
     for (const match of games) {
       const leagueId = match.league?.league_id, seasonId = match.season?.season_id;
       const homeId = match.home_team?.team_id, awayId = match.away_team?.team_id;
-      if (!leagueId || !seasonId || !homeId || !awayId) { enrichedGames.push(match); continue; }
-      const [homeStats, awayStats] = await Promise.all([
-        fetchTeamStats(homeId, seasonId, leagueId), fetchTeamStats(awayId, seasonId, leagueId)
+      const existingOdds = match.odds?.match_winner || {};
+      const has1x2 = ['home', 'draw', 'away'].every(k => Number(existingOdds[k]) > 1);
+      const oddsPromise = !has1x2 && classifyStatus(match) === 'scheduled'
+        ? fetchMatchOdds(match.match_id) : Promise.resolve(null);
+      if (!leagueId || !seasonId || !homeId || !awayId) {
+        const odds = await oddsPromise;
+        enrichedGames.push({ ...match, ...(odds ? { odds } : {}) });
+        continue;
+      }
+      const [homeStats, awayStats, fetchedOdds] = await Promise.all([
+        fetchTeamStats(homeId, seasonId, leagueId),
+        fetchTeamStats(awayId, seasonId, leagueId),
+        oddsPromise
       ]);
-      enrichedGames.push({ ...match, _teamStats: { home: homeStats, away: awayStats } });
+      enrichedGames.push({
+        ...match,
+        ...(fetchedOdds ? { odds: fetchedOdds } : {}),
+        _teamStats: { home: homeStats, away: awayStats }
+      });
     }
     matchesBox.className = 'fixture-list'; matchesBox.replaceChildren();
     enrichedGames.forEach(match => {
