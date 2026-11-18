@@ -52,9 +52,41 @@ function poissonProbability(lambda, goals) {
   for (let i = 1; i <= goals; i++) p *= lambda / i;
   return p;
 }
+const teamStatsCache = new Map();
+async function fetchTeamStats(teamId, seasonId, leagueId) {
+  if (!teamId || !seasonId || !leagueId) return null;
+  const key = [teamId, seasonId, leagueId].join(':');
+  if (!teamStatsCache.has(key)) {
+    const request = fetchWithTimeout('/api/teams/' + encodeURIComponent(teamId) +
+      '/stats?' + new URLSearchParams({ season_id: seasonId, league_id: leagueId }),
+      { cache: 'no-store' }, 14000).then(async response => {
+        const payload = await response.json();
+        if (!response.ok || payload.ok === false) return null;
+        const stats = payload.data || payload.providerData?.data || {};
+        const xg = stats.xg || {};
+        const played = Number(stats.summary?.matches_played || 0);
+        if (played < 3 || !(Number(xg.xg_for_per_match) > 0) ||
+            !(Number(xg.xg_against_per_match) > 0)) return null;
+        return { played, xgFor: Number(xg.xg_for_per_match),
+          xgAgainst: Number(xg.xg_against_per_match),
+          form: stats.form?.overall || '', wins: Number(stats.summary?.wins || 0),
+          draws: Number(stats.summary?.draws || 0), losses: Number(stats.summary?.losses || 0) };
+      }).catch(() => null);
+    teamStatsCache.set(key, request);
+  }
+  return teamStatsCache.get(key);
+}
 function matchAnalysis(match) {
-  const hx = Number(match.xg?.prematch?.home);
-  const ax = Number(match.xg?.prematch?.away);
+  const providerHx = Number(match.xg?.prematch?.home);
+  const providerAx = Number(match.xg?.prematch?.away);
+  const homeStats = match._teamStats?.home, awayStats = match._teamStats?.away;
+  let hx = providerHx, ax = providerAx;
+  if (homeStats && awayStats) {
+    const statsHx = (homeStats.xgFor + awayStats.xgAgainst) / 2;
+    const statsAx = (awayStats.xgFor + homeStats.xgAgainst) / 2;
+    hx = providerHx > 0 ? providerHx * .65 + statsHx * .35 : statsHx;
+    ax = providerAx > 0 ? providerAx * .65 + statsAx * .35 : statsAx;
+  }
   const odds = match.odds?.match_winner || {};
   const provider = match.probabilities || {};
   if (!(hx > 0 && hx <= 4.5 && ax > 0 && ax <= 4.5)) return null;
@@ -134,8 +166,18 @@ async function loadFixtures() {
     const games = Array.isArray(data.matches) ? data.matches :
       Array.isArray(data.providerData?.data?.matches) ? data.providerData.data.matches : [];
     if (!games.length) { renderEmpty('Bu tarixdə oyun tapılmadı', 'Provayder bu tarix və seçilmiş liqa üçün oyun qaytarmadı.'); return; }
+    // Fetch same-competition, same-season team xG; cache each team for this page session.
+    const enrichedGames = await Promise.all(games.map(async match => {
+      const leagueId = match.league?.league_id, seasonId = match.season?.season_id;
+      const homeId = match.home_team?.team_id, awayId = match.away_team?.team_id;
+      if (!leagueId || !seasonId || !homeId || !awayId) return match;
+      const [homeStats, awayStats] = await Promise.all([
+        fetchTeamStats(homeId, seasonId, leagueId), fetchTeamStats(awayId, seasonId, leagueId)
+      ]);
+      return { ...match, _teamStats: { home: homeStats, away: awayStats } };
+    }));
     matchesBox.className = 'fixture-list'; matchesBox.replaceChildren();
-    games.forEach(match => {
+    enrichedGames.forEach(match => {
       const card = document.createElement('article'); card.className = 'fixture';
       const left = document.createElement('div'); left.className = 'fixture-main';
       const leagueName = document.createElement('div'); leagueName.className = 'meta';
@@ -174,9 +216,16 @@ async function loadFixtures() {
         const scoresLine = document.createElement('div'); scoresLine.textContent =
           'Ən ehtimallı hesablar: ' + analysis.scores.map(x => x.score).join(' · ') +
           ' | xG: ' + analysis.hx.toFixed(2) + ' - ' + analysis.ax.toFixed(2);
+        const statsLine = document.createElement('div'); statsLine.className = 'meta';
+        const hs = match._teamStats?.home, as = match._teamStats?.away;
+        statsLine.textContent = hs && as
+          ? 'TEAM xG (eyni liqa/sezon): ' + hs.xgFor.toFixed(2) + '/' + hs.xgAgainst.toFixed(2) +
+            ' · ' + as.xgFor.toFixed(2) + '/' + as.xgAgainst.toFixed(2) +
+            ' | forma: ' + (hs.form || '—') + ' / ' + (as.form || '—')
+          : 'TEAM xG: kifayət qədər təsdiqlənmiş komanda statistikası tapılmadı';
         const consensus = document.createElement('div'); consensus.className = 'meta';
-        consensus.textContent = 'GLOBAL CONSENSUS: aktiv deyil · yalnız 1 provayder mənbəyi var';
-        detail.append(modelLine, marketLine, providerLine, verdict, scoresLine, consensus);
+        consensus.textContent = 'GLOBAL CONSENSUS: aktiv deyil · müstəqil ikinci proqnoz mənbəyi qoşulmayıb';
+        detail.append(modelLine, marketLine, providerLine, verdict, scoresLine, statsLine, consensus);
         card.append(detail);
       } else {
         const note = document.createElement('div'); note.className = 'match-analysis meta';
