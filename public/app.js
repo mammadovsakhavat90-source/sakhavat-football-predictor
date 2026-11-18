@@ -12,13 +12,22 @@ function teamName(match, side) {
     match[side + '_name'], match[side + '_team'], side === 'home' ? 'Ev sahibi' : 'Qonaq');
 }
 function rawStatus(match) {
-  return String(first(match.status_localized, match.status, match.state, '')).toLowerCase();
+  return String(first(match.status, match.state, match.status_localized, '')).trim().toLowerCase();
+}
+function classifyStatus(match) {
+  const s = rawStatus(match);
+  // "incomplete" is a provider's pre-match state, NOT "complete".
+  if (/^(incomplete|not.started|not_started|scheduled|fixture|pending|ns|tbd)$/.test(s)) return 'scheduled';
+  if (/^(live|in.progress|in_progress|1h|2h|ht|half.time|halftime|extra.time|penalties|in.play)$/.test(s)) return 'live';
+  if (/^(finished|complete|completed|ended|full.time|full_time|ft|aet)$/.test(s)) return 'finished';
+  if (/postpon|cancel|abandon|suspend/.test(s)) return 'delayed';
+  return 'scheduled';
 }
 function statusLabel(match) {
-  const s = rawStatus(match);
-  if (/finish|complete|ended|full/.test(s)) return 'Başa çatıb';
-  if (/live|progress|half|in.play/.test(s)) return 'Canlı';
-  if (/postpon|cancel|abandon/.test(s)) return 'Təxirə salınıb';
+  const status = classifyStatus(match);
+  if (status === 'finished') return 'Başa çatıb';
+  if (status === 'live') return 'Canlı';
+  if (status === 'delayed') return 'Təxirə salınıb';
   return 'Başlamayıb';
 }
 function matchTime(match) {
@@ -69,10 +78,9 @@ async function loadFixtures() {
       const sc = match.score || match.result || {};
       const homeScore = first(sc.home, sc.home_score, match.home_score);
       const awayScore = first(sc.away, sc.away_score, match.away_score);
-      const state = rawStatus(match);
-      const hasStarted = /live|progress|half|in.play|finish|complete|ended|full/.test(state);
-      // Some providers send 0-0 placeholders for fixtures that have not started.
-      score.textContent = hasStarted && homeScore !== undefined && awayScore !== undefined
+      const state = classifyStatus(match);
+      score.textContent = (state === 'live' || state === 'finished') &&
+        homeScore !== undefined && awayScore !== undefined
         ? homeScore + ' : ' + awayScore : 'VS';
       card.append(left, score); matchesBox.append(card);
     });
@@ -86,6 +94,6 @@ document.querySelectorAll('.tab').forEach(button => button.addEventListener('cli
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === button));
   document.querySelectorAll('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
 }));
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=3').catch(() => {}));
 checkConnection(); loadFixtures();
 setInterval(() => { if (document.visibilityState === 'visible') { checkConnection(); loadFixtures(); } }, 300000);
