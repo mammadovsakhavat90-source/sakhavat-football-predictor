@@ -170,7 +170,7 @@ async function loadFixtures() {
         verdict.textContent = analysis.edge === null ? 'FINAL VERDICT: bazar müqayisəsi mümkün deyil' :
           Math.abs(analysis.edge) < 3 ? 'FINAL VERDICT: aydın statistik üstünlük yoxdur' :
           'FINAL VERDICT: ' + (analysis.edge > 0 ? '1/X/2 ' + analysis.labels[analysis.best] + ' istiqamətində model üstünlüyü' : 'bazar modeldən daha güclüdür') +
-          ' (' + (analysis.edge > 0 ? '+' : '') + analysis.edge.toFixed(1) + faiz bəndi)';
+          ' (' + (analysis.edge > 0 ? '+' : '') + analysis.edge.toFixed(1) + ' faiz bəndi)';
         const scoresLine = document.createElement('div'); scoresLine.textContent =
           'Ən ehtimallı hesablar: ' + analysis.scores.map(x => x.score).join(' · ') +
           ' | xG: ' + analysis.hx.toFixed(2) + ' - ' + analysis.ax.toFixed(2);
