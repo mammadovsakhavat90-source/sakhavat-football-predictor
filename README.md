@@ -1,6 +1,6 @@
 # SAKHAVAT FOOTBALL PREDICTOR 1.0
 
-Football fixtures dashboard backed by Footballdata.io.
+Football fixtures and pre-match analysis dashboard backed by Footballdata.io.
 
 ## Run locally
 1. Install Node.js 18 or newer.
@@ -15,6 +15,17 @@ Use the repository root as the service root, build command `npm install`, and st
 - `/api/status`
 - `/api/fixtures?date=YYYY-MM-DD`
 - Optional league filter: `/api/fixtures?date=YYYY-MM-DD&league_id=15`
+- `/api/teams/:id/stats?season_id=&league_id=`
+- `/api/matches/:match_id`
+- `/api/matches/:match_id/odds`
+- `/api/matches/:match_id/probabilities`
+- `POST /api/predict` for supplied, verified team and league statistics
 
-## Current scope
-The live fixture dashboard, league/date filtering, Baku-time display, five-minute refresh, and PWA manifest are present. A Poisson + Dixon-Coles + Elo calculation engine is available at POST /api/predict. It requires real, verified team attack/defence rates, league goal averages, and optionally Elo/xG inputs. The fixture provider currently does not supply those historical team metrics through the configured fixtures endpoint, so automatic fixture predictions remain disabled. Verified global forecast consensus, FINAL VERDICT integration, prediction audit/history storage, push notifications, and Android APK are not implemented yet. The interface labels these as planned rather than presenting fabricated predictions. Provider coverage depends on its plan and supported competitions.
+## Current implementation
+- Live fixture list, league/date filtering, Baku-time display, five-minute refresh, and PWA manifest.
+- Fixture-card SAKHAVAT MODEL: available prematch xG blended with same-league/season team xG, then Poisson + Dixon-Coles 1-X-2 and scoreline probabilities.
+- Elo calculation is available in the separate prediction API when verified Elo inputs are supplied; Elo ratings are not yet automatically connected to fixture-card predictions.
+- GLOBAL CONSENSUS checks three independent data feeds when the same fixture can be matched reliably: Footballdata.io provider probabilities, KiqIQ public model probabilities, and Football Analytics public pre-match picks. Missing sources are not invented. KiqIQ endpoint documentation: https://kiqiq.com/api. Football Analytics data and attribution: https://footballanalytics.pro/data (CC BY 4.0).
+- FINAL VERDICT compares SAKHAVAT MODEL with bookmaker 1-X-2 odds after removing the overround, only when all three odds are available.
+- Odds, xG, provider probabilities, and external predictions depend on competition coverage and provider availability. No missing values are fabricated.
+- Persistent prediction audit/history, calibrated long-term performance metrics, push notifications, and Android APK packaging are not implemented yet.
