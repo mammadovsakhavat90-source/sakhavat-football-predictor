@@ -167,15 +167,16 @@ async function loadFixtures() {
       Array.isArray(data.providerData?.data?.matches) ? data.providerData.data.matches : [];
     if (!games.length) { renderEmpty('Bu tarixdə oyun tapılmadı', 'Provayder bu tarix və seçilmiş liqa üçün oyun qaytarmadı.'); return; }
     // Fetch same-competition, same-season team xG; cache each team for this page session.
-    const enrichedGames = await Promise.all(games.map(async match => {
+    const enrichedGames = [];
+    for (const match of games) {
       const leagueId = match.league?.league_id, seasonId = match.season?.season_id;
       const homeId = match.home_team?.team_id, awayId = match.away_team?.team_id;
-      if (!leagueId || !seasonId || !homeId || !awayId) return match;
+      if (!leagueId || !seasonId || !homeId || !awayId) { enrichedGames.push(match); continue; }
       const [homeStats, awayStats] = await Promise.all([
         fetchTeamStats(homeId, seasonId, leagueId), fetchTeamStats(awayId, seasonId, leagueId)
       ]);
-      return { ...match, _teamStats: { home: homeStats, away: awayStats } };
-    }));
+      enrichedGames.push({ ...match, _teamStats: { home: homeStats, away: awayStats } });
+    }
     matchesBox.className = 'fixture-list'; matchesBox.replaceChildren();
     enrichedGames.forEach(match => {
       const card = document.createElement('article'); card.className = 'fixture';
