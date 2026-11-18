@@ -40,11 +40,22 @@ function statusLabel(match) {
 }
 function matchTime(match) {
   const raw = first(match.match_date, match.date, match.kickoff, match.start_time);
-  if (!raw) return 'Vaxt göstərilməyib';
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleTimeString('az-AZ', {
-    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Baku'
-  }) + ' · Bakı';
+  if (!raw && !match.date_unix) return 'Vaxt göstərilməyib';
+  // Footballdata.io date_unix is UTC. Prefer it so the browser can convert
+  // the kickoff accurately to the requested Asia/Baku timezone.
+  let d;
+  const unix = Number(match.date_unix);
+  if (Number.isFinite(unix) && unix > 0) d = new Date(unix * 1000);
+  else if (raw) {
+    const value = String(raw);
+    // Provider's "YYYY-MM-DD HH:mm:ss" values are UTC even without a suffix.
+    d = new Date(/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}/.test(value)
+      ? value.replace(' ', 'T') + 'Z' : value);
+  }
+  return !d || Number.isNaN(d.getTime()) ? String(raw || 'Vaxt göstərilməyib')
+    : d.toLocaleTimeString('az-AZ', {
+      hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Baku'
+    }) + ' · Bakı';
 }
 
 function poissonProbability(lambda, goals) {
