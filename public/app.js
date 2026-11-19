@@ -185,6 +185,10 @@ function normalizeExternalProbabilities(row) {
 }
 function finalVerdict(match, analysis, feeds) {
   if (!analysis) return { confirmed: false, pick: null, text: 'FINAL VERDICT: model üçün etibarlı xG məlumatı yoxdur; seçim verilmir' };
+  const homeSample = match._teamStats?.home, awaySample = match._teamStats?.away;
+  if (!homeSample || !awaySample || homeSample.played < 8 || awaySample.played < 8) {
+    return { confirmed: false, pick: null, text: 'FINAL VERDICT: hər iki komanda üçün minimum 8 oyunlu statistik nümunə yoxdur; yekun seçim verilmir' };
+  }
   const modelPick = analysis.labels?.[analysis.best] || null;
   const consensusPick = globalConsensusPick(match, analysis, feeds);
   if (!consensusPick) return { confirmed: false, pick: null, text: 'FINAL VERDICT: iki müstəqil mənbədən təsdiqlənmiş konsensus yoxdur; yekun seçim verilmir' };
@@ -319,7 +323,7 @@ async function fetchTeamStats(teamId, seasonId, leagueId) {
         const stats = payload.data || payload.providerData?.data || {};
         const xg = stats.xg || {};
         const played = Number(stats.summary?.matches_played || 0);
-        if (played < 3 || !(Number(xg.xg_for_per_match) > 0) ||
+        if (played < 5 || !(Number(xg.xg_for_per_match) > 0) ||
             !(Number(xg.xg_against_per_match) > 0)) return null;
         return { played, xgFor: Number(xg.xg_for_per_match),
           xgAgainst: Number(xg.xg_against_per_match),
@@ -449,6 +453,48 @@ function recordPredictionHistory(match, analysis, feeds) {
   rows.push(row);
   writePredictionHistory(rows);
 }
+let auditInProgress = false;
+let lastAuditAt = 0;
+async function auditPendingResults() {
+  if (auditInProgress || Date.now() - lastAuditAt < 55 * 60 * 1000) return;
+  auditInProgress = true;
+  lastAuditAt = Date.now();
+  try {
+    const rows = readPredictionHistory();
+    const due = rows.filter(row => !row.result &&
+      Number.isFinite(Date.parse(row.kickoff)) &&
+      Date.parse(row.kickoff) < Date.now() - 90 * 60 * 1000).slice(0, 3);
+    let changed = false;
+    for (const saved of due) {
+      try {
+        const response = await fetchWithTimeout(apiUrl('/api/matches/' + encodeURIComponent(saved.id)),
+          { cache: 'no-store' }, 15000);
+        if (!response.ok) continue;
+        const payload = await response.json();
+        const candidate = payload?.data?.match || payload?.providerData?.data?.match ||
+          payload?.providerData?.match || payload?.data || payload?.providerData;
+        if (!candidate || typeof candidate !== 'object') continue;
+        const returnedId = first(candidate.match_id, candidate.fixture_id);
+        if (returnedId != null && String(returnedId) !== saved.id) continue;
+        if (classifyStatus(candidate) !== 'finished') continue;
+        const result = scoreFromMatch(candidate);
+        if (!result) continue;
+        const current = readPredictionHistory();
+        const index = current.findIndex(row => row.id === saved.id);
+        if (index < 0 || current[index].result) continue;
+        current[index].result = result;
+        current[index].completedAt = new Date().toISOString();
+        writePredictionHistory(current);
+        changed = true;
+      } catch (error) {
+        console.warn('Automatic result audit deferred for match ' + saved.id, error);
+      }
+    }
+    if (changed) renderPredictionHistory();
+  } finally {
+    auditInProgress = false;
+  }
+}
 function renderPredictionHistory() {
   const rows = readPredictionHistory();
   const completed = rows.filter(row => row.result && row.probabilities);
@@ -502,7 +548,7 @@ function renderPredictionHistory() {
     item.append(title,date,forecast,result); list.append(item);
   });
   const note=document.getElementById('historyNote');
-  if(note) note.textContent='Tarixçə bu brauzerdə saxlanılır ('+rows.length+' oyun). Eyni telefonda və brauzerdə qalır; brauzer məlumatları silinsə tarixçə də silinə bilər.';
+  if(note) note.textContent='Tarixçə bu brauzerdə saxlanılır ('+rows.length+' oyun). Tətbiq açıq olanda başa çatmış oyunların nəticələri saatda maksimum 3 matç üzrə avtomatik yoxlanılır. Bu telefon/brauzer yaddaşıdır; brauzer məlumatları silinsə tarixçə də silinə bilər.';
 }
 
 function exportPredictionHistory() {
@@ -607,7 +653,7 @@ function recommendationSets(matches,feeds) {
   for(const match of matches){
     if(classifyStatus(match)!=='scheduled') continue;
     const a=matchAnalysis(match); if(!a) continue;
-    const quality=!!(match._teamStats?.home&&match._teamStats?.away);
+    const quality=!!(match._teamStats?.home&&match._teamStats?.away&&match._teamStats.home.played>=8&&match._teamStats.away.played>=8);
     const consensus=globalConsensusPick(match,a,feeds);
     const modelPick=a.best, p=a.outcomes[modelPick];
     const marketClose=a.market && Math.abs(a.outcomes[modelPick]-a.market[modelPick])<=9;
@@ -829,12 +875,13 @@ document.getElementById('kickoffFilter')?.addEventListener('change',loadFixtures
 document.getElementById('leagueFilter')?.addEventListener('change',loadFixtures);
 document.getElementById('sameTimeToggle')?.addEventListener('change',loadFixtures);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=8').catch(() => {}));
-checkConnection(); loadFixtures();
+checkConnection(); loadFixtures(); auditPendingResults();
 // Respect the provider's free request allowance: refresh scheduled fixtures hourly,
 // but refresh every two minutes while a match is live.
 setInterval(() => {
   if (document.visibilityState !== 'visible') return;
   if (Date.now() - lastFixtureLoadAt > 600000) checkConnection();
+  if (Date.now() - lastAuditAt >= 60 * 60 * 1000) auditPendingResults();
   const liveNow = latestMatches.some(match => classifyStatus(match) === 'live');
   const refreshAfter = liveNow ? 120000 : 3600000;
   if (Date.now() - lastFixtureLoadAt >= refreshAfter) loadFixtures();
