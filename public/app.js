@@ -456,6 +456,37 @@ function renderPredictionHistory() {
   if(note) note.textContent='Tarixçə bu brauzerdə saxlanılır ('+rows.length+' oyun). Eyni telefonda və brauzerdə qalır; brauzer məlumatları silinsə tarixçə də silinə bilər.';
 }
 
+function exportPredictionHistory() {
+  const payload = { app: 'SAKHAVAT FOOTBALL PREDICTOR', version: 1,
+    exportedAt: new Date().toISOString(), predictions: readPredictionHistory() };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'sakhavat-prediction-history-' + new Date().toISOString().slice(0,10) + '.json';
+  document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+}
+function importPredictionHistory(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const payload = JSON.parse(String(reader.result || ''));
+      const imported = Array.isArray(payload) ? payload : payload.predictions;
+      if (!Array.isArray(imported)) throw new Error('Backup faylında proqnoz siyahısı yoxdur.');
+      const valid = imported.filter(row => row && typeof row.id === 'string' &&
+        row.probabilities && ['1','X','2'].every(key => Number.isFinite(Number(row.probabilities[key]))) &&
+        ['1','X','2'].includes(row.best) && Number.isFinite(Date.parse(row.kickoff)));
+      if (!valid.length && imported.length) throw new Error('Faylda bərpa edilə bilən proqnoz yoxdur.');
+      const merged = new Map(readPredictionHistory().map(row => [row.id, row]));
+      valid.forEach(row => { if (!merged.has(row.id)) merged.set(row.id, row); });
+      if (!writePredictionHistory([...merged.values()])) throw new Error('Brauzer yaddaşına yazmaq mümkün olmadı.');
+      renderPredictionHistory();
+      alert(valid.length + ' proqnoz yoxlanıldı. Yeni qeydlər əlavə edildi; mövcud ilkin qeydlər dəyişdirilmədi.');
+    } catch (error) { alert('Backup bərpa edilmədi: ' + error.message); }
+  };
+  reader.onerror = () => alert('Backup faylı oxunmadı.');
+  reader.readAsText(file);
+}
 function renderEmpty(title, detail) {
   matchesBox.className = 'empty'; matchesBox.replaceChildren();
   const icon = document.createElement('div'); icon.className = 'empty-icon'; icon.textContent = '⌁';
@@ -622,6 +653,9 @@ async function loadFixtures() {
 }
 document.getElementById('refresh')?.addEventListener('click', loadFixtures);
 renderPredictionHistory();
+document.getElementById('exportHistory')?.addEventListener('click', exportPredictionHistory);
+document.getElementById('importHistory')?.addEventListener('click', () => document.getElementById('importHistoryFile')?.click());
+document.getElementById('importHistoryFile')?.addEventListener('change', event => { const file = event.target.files?.[0]; if (file) importPredictionHistory(file); event.target.value = ''; });
 document.getElementById('loadDate')?.addEventListener('click', loadFixtures);
 dateInput.addEventListener('change', loadFixtures);
 document.getElementById('leagueFilter')?.addEventListener('change', loadFixtures);
