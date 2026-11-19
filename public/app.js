@@ -500,7 +500,9 @@ async function auditPendingResults() {
       Number.isFinite(Date.parse(row.kickoff)) &&
       Date.parse(row.kickoff) < Date.now() - 90 * 60 * 1000);
     if (!due.length) return;
-    const from = new Date(Math.min(...due.map(row => Date.parse(row.kickoff)))).toISOString().slice(0, 10);
+    const earliestDue = Math.min(...due.map(row => Date.parse(row.kickoff)));
+    const auditWindowStart = Math.max(earliestDue, Date.now() - 89 * 86400000);
+    const from = new Date(auditWindowStart).toISOString().slice(0, 10);
     const to = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'Asia/Baku', year: 'numeric', month: '2-digit', day: '2-digit'
     }).format(new Date());
