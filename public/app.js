@@ -785,6 +785,6 @@ document.querySelectorAll('.league-tile').forEach(button=>button.addEventListene
 }));
 document.getElementById('kickoffFilter')?.addEventListener('change',loadFixtures);
 document.getElementById('sameTimeToggle')?.addEventListener('change',loadFixtures);
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=7').catch(() => {}));
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=8').catch(() => {}));
 checkConnection(); loadFixtures();
 setInterval(() => { if (document.visibilityState === 'visible') { checkConnection(); loadFixtures(); } }, 300000);
