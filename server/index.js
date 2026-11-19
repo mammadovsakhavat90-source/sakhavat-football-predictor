@@ -91,7 +91,7 @@ async function providerData(endpoint) {
     fetchJson(API_BASE + endpoint, { Authorization: 'Bearer ' + API_KEY }));
 }
 function validIsoDate(value) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(value || ''))) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
   const parsed = new Date(String(value) + 'T00:00:00.000Z');
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
@@ -251,7 +251,7 @@ app.get('/api/results', async (req, res) => {
     const matches = allMatches.filter(match => {
       const id = String(match.league?.league_id ?? match.league_id ?? match.competition?.league_id ?? '');
       const matchId = String(match.match_id ?? match.fixture_id ?? '');
-      const status = String(match.status || '').toLowerCase().replace(/[\\s_-]+/g, '.');
+      const status = String(match.status || '').toLowerCase().replace(/[\s_-]+/g, '.');
       const score = match.score || match.result || {};
       const homeScore = Number(score.home ?? score.home_score ?? match.home_score);
       const awayScore = Number(score.away ?? score.away_score ?? match.away_score);
