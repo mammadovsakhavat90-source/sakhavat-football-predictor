@@ -733,7 +733,7 @@ function renderPickCard(item,risky=false) {
   const stats=document.createElement('div');stats.className='pick-stats';
   const p=document.createElement('span');p.textContent='Model: '+percent(item.prob);stats.append(p);
   if(risky){const o=document.createElement('span');o.textContent='Əmsal: '+item.odds.toFixed(2);stats.append(o);const e=document.createElement('span');e.textContent='Model üstünlüyü: +'+item.edge.toFixed(1)+' pp';stats.append(e);}
-  else {const q=document.createElement('span');q.textContent='Məlumat: xG + forma';stats.append(q);if(item.consensus){const cs=document.createElement('span');cs.textContent='Konsensus: '+item.consensus;stats.append(cs);}}
+  else {const q=document.createElement('span');q.textContent='Məlumat: xG + mövsüm statistikası';stats.append(q);if(item.consensus){const cs=document.createElement('span');cs.textContent='Konsensus: '+item.consensus;stats.append(cs);}}
   const reason=document.createElement('div');reason.className='pick-reason';reason.textContent=risky?'Yüksək əmsal və bazarla müqayisədə müsbət model fərqi var. Risk yüksəkdir, mərc zəmanəti deyil.':'Komanda statistikası mövcuddur və model ehtimalı dəstəkləyici siqnallarla uyğunlaşır. Bu, zəmanət deyil.';
   card.append(head,selection,stats,reason);return card;
 }
