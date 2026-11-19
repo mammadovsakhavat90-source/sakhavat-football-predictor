@@ -39,9 +39,24 @@ jobs:
         run: npx cap add android
       - name: Sync web assets
         run: npx cap sync android
+      - name: Check JavaScript syntax
+        run: |
+          node --check public/app.js
+          node --check server/index.js
+          node --check server/prediction.js
       - name: Configure reliable Maven mirrors
         run: |
-          find android -type f \( -name '*.gradle' -o -name '*.gradle.kts' \) -print0 | xargs -0 -r sed -i '/google()/a\\        maven { url "https://maven.aliyun.com/repository/google" }\\n        maven { url "https://maven.aliyun.com/repository/public" }'
+          python3 - <<'PY'
+          from pathlib import Path
+          for file in Path("android").rglob("*.gradle"):
+              source = file.read_text()
+              if "maven.aliyun.com/repository/google" not in source:
+                  source = source.replace(
+                      "google()",
+                      'google()\\n        maven { url "https://maven.aliyun.com/repository/google" }\\n        maven { url "https://maven.aliyun.com/repository/public" }'
+                  )
+                  file.write_text(source)
+          PY
       - name: Build debug APK
         run: cd android && ./gradlew --no-daemon --stacktrace assembleDebug
       - name: Upload APK
