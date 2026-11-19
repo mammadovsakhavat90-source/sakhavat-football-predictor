@@ -3,8 +3,8 @@ const matchesBox = document.getElementById('matchList');
 const connection = document.getElementById('connection');
 const API_ORIGIN = window.Capacitor ? 'https://sakhavat-football-predictor.onrender.com' : '';
 const apiUrl = path => API_ORIGIN + path;
-const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
-dateInput.value = localToday.toISOString().slice(0, 10);
+const bakuParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Baku', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+dateInput.value = bakuParts.find(p => p.type === 'year').value + '-' + bakuParts.find(p => p.type === 'month').value + '-' + bakuParts.find(p => p.type === 'day').value;
 const first = (...values) => values.find(v => v !== undefined && v !== null && String(v).trim() !== '');
 function decodeText(value) {
   let text = String(value ?? '');
