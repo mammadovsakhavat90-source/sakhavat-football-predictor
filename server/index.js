@@ -239,6 +239,47 @@ app.get('/api/matches/:id/:kind', (req, res) => {
   }
   return providerGet('/matches/' + req.params.id + '/' + req.params.kind, res);
 });
+app.get('/api/results', async (req, res) => {
+  const from = String(req.query.from || '');
+  const to = String(req.query.to || '');
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(from) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(to)) {
+    return res.status(400).json({ ok: false, error: 'from və to tarixləri YYYY-MM-DD formatında olmalıdır.' });
+  }
+  const fromMs = Date.parse(from + 'T00:00:00Z');
+  const toMs = Date.parse(to + 'T00:00:00Z');
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs < fromMs || toMs - fromMs > 90 * 86400000) {
+    return res.status(400).json({ ok: false, error: 'Nəticə auditi üçün tarix aralığı maksimum 90 gün ola bilər.' });
+  }
+  if (!API_KEY) return res.status(503).json({ ok: false, error: 'FOOTBALLDATA_API_KEY konfiqurasiya edilməyib.' });
+  try {
+    const params = new URLSearchParams({ from, to, page: '1', limit: '100' });
+    const firstPage = await cachedJson('footballdata:results:' + params.toString(), 30 * 60 * 1000, () =>
+      fetchJson(API_BASE + '/fixtures/results?' + params.toString(), { Authorization: 'Bearer ' + API_KEY }), 2 * 60 * 60 * 1000);
+    const root = firstPage.data.data || {};
+    const firstMatches = Array.isArray(root.matches) ? root.matches : [];
+    const totalPages = Math.max(1, Number(firstPage.data.meta?.pagination?.total_pages) || 1);
+    const pageCount = Math.min(totalPages, 3);
+    const more = await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => {
+      const page = index + 2;
+      const query = new URLSearchParams({ from, to, page: String(page), limit: '100' });
+      return cachedJson('footballdata:results:' + query.toString(), 30 * 60 * 1000, () =>
+        fetchJson(API_BASE + '/fixtures/results?' + query.toString(), { Authorization: 'Bearer ' + API_KEY }), 2 * 60 * 60 * 1000);
+    }));
+    const allMatches = firstMatches.concat(...more.map(item => item.data.data?.matches || []));
+    const matches = allMatches.filter(match => {
+      const id = String(match.league?.league_id ?? match.league_id ?? match.competition?.league_id ?? '');
+      return ALLOWED_LEAGUE_IDS.has(id);
+    });
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    return res.json({
+      ok: true, provider: 'Footballdata.io', matches,
+      meta: { from, to, providerMatches: allMatches.length, filteredMatches: matches.length,
+        pagesFetched: pageCount, truncated: totalPages > pageCount,
+        cache: firstPage.cached ? (firstPage.stale ? 'stale-fallback' : 'hit') : 'miss' }
+    });
+  } catch (error) { return sendProviderError(res, error); }
+});
+
 app.get('/api/fixtures', (req, res) => {
   const date = String(req.query.date || '');
   const leagueId = req.query.league_id;
