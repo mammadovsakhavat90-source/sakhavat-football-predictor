@@ -91,8 +91,8 @@ function poissonProbability(lambda, goals) {
 let globalPicksPromise = null, globalPicksCache = null, globalPicksFetchedAt = 0;
 const kiqiqCache = new Map();
 function normalizeTeamLabel(value) {
-  let label = String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
-    .toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();
+  let label = String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
   const aliases = [
     [/^real racing club de santander$/, 'racing santander'],
     [/^racing club de santander$/, 'racing santander'],
@@ -101,8 +101,8 @@ function normalizeTeamLabel(value) {
     [/^ca osasuna$/, 'osasuna']
   ];
   for (const [pattern, replacement] of aliases) label = label.replace(pattern, replacement);
-  return label.replace(/\\b(fc|afc|cf|sc|ac|ca|the|club|de|football|futbol)\\b/g, ' ')
-    .replace(/\\s+/g, ' ').trim();
+  return label.replace(/\b(fc|afc|cf|sc|ac|ca|the|club|de|football|futbol)\b/g, ' ')
+    .replace(/\s+/g, ' ').trim();
 }
 function teamLabelsMatch(a, b) {
   const x = normalizeTeamLabel(a), y = normalizeTeamLabel(b);
