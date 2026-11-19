@@ -91,13 +91,22 @@ function poissonProbability(lambda, goals) {
 let globalPicksPromise = null, globalPicksCache = null, globalPicksFetchedAt = 0;
 const kiqiqCache = new Map();
 function normalizeTeamLabel(value) {
-  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\b(fc|afc|cf|sc|ac|the)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  let label = String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();
+  const aliases = [
+    [/^real racing club de santander$/, 'racing santander'],
+    [/^racing club de santander$/, 'racing santander'],
+    [/^real sociedad de futbol$/, 'real sociedad'],
+    [/^club atletico de madrid$/, 'atletico madrid'],
+    [/^ca osasuna$/, 'osasuna']
+  ];
+  for (const [pattern, replacement] of aliases) label = label.replace(pattern, replacement);
+  return label.replace(/\\b(fc|afc|cf|sc|ac|ca|the|club|de|football|futbol)\\b/g, ' ')
+    .replace(/\\s+/g, ' ').trim();
 }
 function teamLabelsMatch(a, b) {
   const x = normalizeTeamLabel(a), y = normalizeTeamLabel(b);
-  return !!x && !!y && (x === y || x.endsWith(' ' + y) || y.endsWith(' ' + x));
+  return !!x && !!y && x === y;
 }
 async function fetchGlobalPicks() {
   if (globalPicksCache && Date.now() - globalPicksFetchedAt < 900000) return globalPicksCache;
@@ -115,7 +124,8 @@ async function fetchGlobalPicks() {
 }
 async function fetchKiqiqPredictions(selectedDate) {
   if (!selectedDate) return [];
-  if (kiqiqCache.has(selectedDate)) return kiqiqCache.get(selectedDate);
+  const cached = kiqiqCache.get(selectedDate);
+  if (cached && Date.now() - cached.fetchedAt < 300000) return cached.promise;
   const promise = (async () => {
     try {
       // Include the previous UTC day because late-night Baku fixtures can fall on
@@ -130,7 +140,7 @@ async function fetchKiqiqPredictions(selectedDate) {
       return Array.isArray(payload.fixtures) ? payload.fixtures : [];
     } catch { return []; }
   })();
-  kiqiqCache.set(selectedDate, promise);
+  kiqiqCache.set(selectedDate, { promise, fetchedAt: Date.now() });
   return promise;
 }
 function findGlobalPick(match, rows) {
@@ -139,7 +149,9 @@ function findGlobalPick(match, rows) {
   const home = teamName(match, 'home'), away = teamName(match, 'away');
   return rows.find(row => {
     const externalTime = Date.parse(row.kickoff_utc || '');
-    return Number.isFinite(externalTime) && Math.abs(externalTime - kickoff) <= 4 * 60 * 60 * 1000 &&
+    const writtenAt = Date.parse(row.pick_written_utc || '');
+    return Number.isFinite(externalTime) && Math.abs(externalTime - kickoff) <= 2 * 60 * 60 * 1000 &&
+      Number.isFinite(writtenAt) && writtenAt < externalTime && externalTime - writtenAt <= 7 * 86400000 &&
       teamLabelsMatch(home, row.home_team) && teamLabelsMatch(away, row.away_team) &&
       ['1', 'X', '2'].includes(String(row.pick).toUpperCase());
   }) || null;
@@ -171,8 +183,12 @@ function finalVerdict(match, analysis, feeds) {
   if (!modelPick || consensusPick !== modelPick) {
     return { confirmed: false, pick: null, text: 'FINAL VERDICT: SAKHAVAT modeli və müstəqil konsensus fərqlənir; yekun seçim verilmir' };
   }
+  const marketKey = { '1':'home', 'X':'draw', '2':'away' }[modelPick];
+  if (analysis.market && Math.abs(analysis.outcomes[marketKey] - analysis.market[marketKey]) > 15) {
+    return { confirmed: false, pick: null, text: 'FINAL VERDICT: model və bazar arasında 15 faiz bəndindən böyük fərq var; əlavə yoxlama tələb olunur' };
+  }
   const marketText = analysis.market
-    ? ' · bazar ehtimalı ' + percent(analysis.market[{ '1':'home', 'X':'draw', '2':'away' }[modelPick]])
+    ? ' · bazar ehtimalı ' + percent(analysis.market[marketKey])
     : ' · bazar əmsalı mövcud deyil';
   return { confirmed: true, pick: modelPick, text: 'FINAL VERDICT: TƏSDİQLƏNDİ · model və 2 müstəqil mənbə eyni seçimdədir: ' + modelPick + marketText };
 }
@@ -350,7 +366,9 @@ function matchAnalysis(match) {
   }
   const best = keys.reduce((a, b) => outcomes[a] >= outcomes[b] ? a : b);
   const edge = market ? outcomes[best] - market[best] : null;
-  return { hx, ax, outcomes, scores: scores.slice(0, 2), market, provider, best, edge, labels };
+  const providerMarketDuplicate = !!market && !!provider &&
+    keys.every(key => Math.abs(provider[key === 'home' ? 'home_win' : key === 'draw' ? 'draw' : 'away_win'] - market[key]) <= 0.3);
+  return { hx, ax, outcomes, scores: scores.slice(0, 2), market, provider, providerMarketDuplicate, best, edge, labels };
 }
 function doubleChanceSelection(probabilities) {
   const ranked = Object.entries(probabilities || {}).filter(([key, value]) =>
@@ -418,7 +436,7 @@ function recordPredictionHistory(match, analysis, feeds) {
     probabilities, best, doubleChance: doubleChanceSelection(probabilities), exactScore: analysis.scores?.[0]?.score || null,
     xg: [analysis.hx,analysis.ax], consensus: globalConsensusText(match,analysis,feeds),
     consensusPick: globalConsensusPick(match,analysis,feeds),
-    finalPick: globalConsensusPick(match,analysis,feeds) === best ? best : null,
+    finalPick: finalVerdict(match,analysis,feeds).confirmed ? best : null,
     savedAt: new Date().toISOString(), result: null
   };
   rows.push(row);
@@ -567,7 +585,11 @@ function kickoffClock(match) {
   const d = new Date(/^\d{4}-\d{2}-\d{2} /.test(raw) ? raw.replace(' ','T')+'Z' : raw);
   return Number.isNaN(d.getTime()) ? 'Vaxt yoxdur' : new Intl.DateTimeFormat('az-AZ',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Baku'}).format(d);
 }
-function leagueLabel(match) { return first(match.league?.name,match.league_name,match.competition?.name,'Liqa'); }
+function leagueLabel(match) {
+  return first(match.league_display_name, match.league?.league_name, match.league?.name,
+    match.league?.competition_name, match.league_name, match.competition?.league_name,
+    match.competition?.name, match.competition_name, 'Liqa');
+}
 function pickOdds(match,key) {
   const odds=normalizeOdds(match.odds)?.match_winner;
   return odds && Number.isFinite(Number(odds[key])) ? Number(odds[key]) : null;
@@ -582,9 +604,9 @@ function recommendationSets(matches,feeds) {
     const consensus=globalConsensusPick(match,a,feeds);
     const modelPick=a.best, p=a.outcomes[modelPick];
     const marketClose=a.market && Math.abs(a.outcomes[modelPick]-a.market[modelPick])<=9;
-    const providerClose=a.provider && Number.isFinite(Number(a.provider.home_win)) &&
+    const providerClose=!a.providerMarketDuplicate && a.provider && Number.isFinite(Number(a.provider.home_win)) &&
       Math.abs(a.outcomes[modelPick]-Number(a.provider[{home:'home_win',draw:'draw',away:'away_win'}[modelPick]]))<=12;
-    if(quality && p>=58 && (consensus ? consensus===a.labels[modelPick] : (marketClose || providerClose))){
+    if(quality && p>=58 && consensus===a.labels[modelPick] && (!a.market || marketClose)){
       const item={match,analysis:a,pick:a.labels[modelPick],prob:p,quality,consensus};
       const lid=String(match.league?.league_id||match.league_name||'unknown');
       const old=perLeague.get(lid);
@@ -656,7 +678,8 @@ function renderFixtureCard(match,analysis,feeds){
     const market=document.createElement('div');market.textContent=analysis.market?'BAZAR (marjasız) · 1 '+percent(analysis.market.home)+' · X '+percent(analysis.market.draw)+' · 2 '+percent(analysis.market.away):'BAZAR: əmsal məlumatı yoxdur';
     const provider=document.createElement('div');
     const pv=analysis.provider||{};
-    if(match._providerProbabilityRepeated) provider.textContent='PROVIDER EHTİMALI: təkrarlanan göstərici olduğuna görə etibarsız sayıldı';
+    if(match._providerProbabilityRepeated) provider.textContent='PROVIDER EHTİMALI: eyni rəqəmlər çox oyunda təkrarlandığı üçün etibarsız sayıldı';
+    else if(analysis.providerMarketDuplicate) provider.textContent='PROVIDER EHTİMALI: bazar ehtimalı ilə eynidir; ayrıca müstəqil təsdiq sayılmır';
     else if(['home_win','draw','away_win'].every(k=>Number.isFinite(Number(pv[k])))) provider.textContent='PROVIDER EHTİMALI: 1 '+percent(pv.home_win)+' · X '+percent(pv.draw)+' · 2 '+percent(pv.away_win);
     else provider.textContent='PROVIDER EHTİMALI: etibarlı 1X2 məlumatı yoxdur';
     const scores=document.createElement('div');scores.textContent='Ən ehtimallı hesablar: '+analysis.scores.map(x=>x.score).join(' · ')+' | xG: '+analysis.hx.toFixed(2)+' - '+analysis.ax.toFixed(2);
@@ -673,7 +696,8 @@ function renderFixtureCard(match,analysis,feeds){
 async function loadFixtures() {
   renderEmpty('Oyunlar yüklənir...', 'Məlumat provayderdən alınır.');
   try {
-    const params = new URLSearchParams({ date: dateInput.value });
+    lastFixtureLoadAt = Date.now();
+    const params = new URLSearchParams({ date: dateInput.value, limit: '100' });
     const league = document.getElementById('leagueFilter')?.value;
     if (league) params.set('league_id', league);
     const response = await fetchWithTimeout(apiUrl('/api/fixtures?' + params.toString()), { cache: 'no-store' }, 75000);
@@ -687,8 +711,10 @@ async function loadFixtures() {
       .then(([footballAnalytics, kiqiq]) => ({ footballAnalytics, kiqiq }));
     const enrichedGames = [];
     for (const match of games) {
-      const leagueId = match.league?.league_id, seasonId = match.season?.season_id;
-      const homeId = match.home_team?.team_id, awayId = match.away_team?.team_id;
+      const leagueId = match.league?.league_id ?? match.league_id ?? match.competition?.league_id;
+      const seasonId = match.season?.season_id ?? match.season_id;
+      const homeId = match.home_team?.team_id ?? match.home_team_id;
+      const awayId = match.away_team?.team_id ?? match.away_team_id;
       const existingOdds = match.odds?.match_winner || {};
       const has1x2 = !!normalizeOdds({ match_winner: existingOdds });
       const existingProbabilities = match.probabilities || {};
@@ -764,6 +790,7 @@ async function loadFixtures() {
     });
   } catch (error) { console.error('Fixture loading failed:', error); renderEmpty('Məlumat yüklənmədi', error.name === 'TimeoutError' ? error.message : (error.message || 'Şəbəkə bağlantısı kəsildi.')); }
 }
+let lastFixtureLoadAt = 0;
 document.getElementById('refresh')?.addEventListener('click', loadFixtures);
 renderPredictionHistory();
 document.getElementById('exportHistory')?.addEventListener('click', exportPredictionHistory);
@@ -789,4 +816,12 @@ document.getElementById('leagueFilter')?.addEventListener('change',loadFixtures)
 document.getElementById('sameTimeToggle')?.addEventListener('change',loadFixtures);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=8').catch(() => {}));
 checkConnection(); loadFixtures();
-setInterval(() => { if (document.visibilityState === 'visible') { checkConnection(); loadFixtures(); } }, 300000);
+// Respect the provider's free request allowance: refresh scheduled fixtures hourly,
+// but refresh every two minutes while a match is live.
+setInterval(() => {
+  if (document.visibilityState !== 'visible') return;
+  if (Date.now() - lastFixtureLoadAt > 600000) checkConnection();
+  const liveNow = latestMatches.some(match => classifyStatus(match) === 'live');
+  const refreshAfter = liveNow ? 120000 : 3600000;
+  if (Date.now() - lastFixtureLoadAt >= refreshAfter) loadFixtures();
+}, 60000);
