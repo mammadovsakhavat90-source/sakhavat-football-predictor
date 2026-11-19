@@ -2,5 +2,8 @@
   "appId": "com.sakhavat.footballpredictor",
   "appName": "SAKHAVAT FOOTBALL PREDICTOR",
   "webDir": "public",
-  "server": {"androidScheme": "https"}
+  "server": {
+    "androidScheme": "https",
+    "url": "https://sakhavat-football-predictor.onrender.com"
+  }
 }
