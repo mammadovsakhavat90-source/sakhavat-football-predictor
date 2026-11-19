@@ -29,4 +29,6 @@ Use the repository root as the service root, build command `npm install`, and st
 - FINAL VERDICT compares SAKHAVAT MODEL with bookmaker 1-X-2 odds after removing the overround, only when all three odds are available.
 - Odds, xG, provider probabilities, and external predictions depend on competition coverage and provider availability. No missing values are fabricated.
 - Prediction audit/history: the browser records the first available pre-kickoff model forecast for each fixture, then evaluates it when a completed score is loaded. It calculates 1-X-2 hit rate, exact-score hit rate, multiclass Brier score, and log loss. This first version stores history in the current browser's localStorage only; it is not a shared server database and can be lost if browser site data is cleared.
-- Push notifications and Android APK packaging are not implemented yet.
+- Android debug APK build is automated through GitHub Actions (`Android APK` workflow). Each push affecting the app triggers a build; the APK is published as a 30-day workflow artifact. This is an installable test APK, not a Play Store-signed release.
+- The Capacitor Android shell routes API requests to the hosted Render backend; the backend allows requests from the native app origin.
+- Push notifications are not implemented yet. A production push service and signing configuration are still required for a store-ready Android release.
