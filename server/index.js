@@ -131,8 +131,7 @@ app.get('/api/status', (_req, res) => res.json({
 
 app.get('/api/consensus', async (req, res) => {
   const date = String(req.query.date || '');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-      new Date(date + 'T00:00:00.000Z').toISOString().slice(0, 10) !== date) {
+  if (!validIsoDate(date)) {
     return res.status(400).json({ ok: false, error: 'date=YYYY-MM-DD tələb olunur.' });
   }
   const from = new Date(Date.parse(date + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
@@ -221,7 +220,7 @@ app.get('/api/matches/:id/:kind', (req, res) => {
 app.get('/api/results', async (req, res) => {
   const from = String(req.query.from || '');
   const to = String(req.query.to || '');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+  if (!validIsoDate(from) || !validIsoDate(to)) {
     return res.status(400).json({ ok: false, error: 'from və to tarixləri YYYY-MM-DD formatında olmalıdır.' });
   }
   const fromMs = Date.parse(from + 'T00:00:00Z');
