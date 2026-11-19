@@ -2,6 +2,7 @@
 const express = require('express');
 const path = require('path');
 const { predict } = require('./prediction');
+const { sanitizeFootballAnalytics, sanitizeKiqiq } = require('./consensus');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -117,68 +118,71 @@ app.get('/api/status', (_req, res) => res.json({
   apiConfigured: Boolean(API_KEY),
   provider: 'Footballdata.io',
   allowedLeagues: ALLOWED_LEAGUES,
-  predictionEngine: 'xG + Poisson + Dixon-Coles',
+  predictionEngine: 'xG + Poisson baseline; Dixon-Coles disabled pending historical calibration',
   predictionMode: 'Elo disabled until a verified ratings feed is connected',
   cache: { entries: cache.size, policy: 'fixtures 2-15m; odds 2m; team statistics 6h; stale fallback enabled' },
-  consensus: { endpoint: '/api/consensus?date=YYYY-MM-DD', sources: ['KiqIQ', 'Football Analytics'], providerCountsAsVote: false }
+  consensus: { endpoint: '/api/consensus?date=YYYY-MM-DD', sources: ['KiqIQ', 'Football Analytics'], providerCountsAsVote: false, freshnessRequired: true, matchToleranceMinutes: 30 }
 }));
 
 app.get('/api/consensus', async (req, res) => {
   const date = String(req.query.date || '');
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return res.status(400).json({ ok: false, error: 'date=YYYY-MM-DD tələb olunur.' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      new Date(date + 'T00:00:00.000Z').toISOString().slice(0, 10) !== date) {
+    return res.status(400).json({ ok: false, error: 'date=YYYY-MM-DD tələb olunur.' });
+  }
   const from = new Date(Date.parse(date + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
   const to = new Date(Date.parse(date + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10);
   const [faResult, kiqiqResult] = await Promise.allSettled([
-    cachedJson('external:footballanalytics', 5 * 60 * 1000, () => fetchJson('https://footballanalytics.pro/data/upcoming.json'), 30 * 60 * 1000),
+    cachedJson('external:footballanalytics', 5 * 60 * 1000,
+      () => fetchJson('https://footballanalytics.pro/data/upcoming.json'), 30 * 60 * 1000),
     cachedJson('external:kiqiq:' + date, 5 * 60 * 1000, () => fetchJson(
-      'https://kiqiq.com/api/v1/predictions?' + new URLSearchParams({ from, to, limit: '100' })
+      'https://kiqiq.com/api/v1/predictions?' +
+      new URLSearchParams({ from, to, limit: '100' })
     ), 15 * 60 * 1000)
   ]);
-  const fa = faResult.status === 'fulfilled' ? faResult.value : null;
-  const kiqiq = kiqiqResult.status === 'fulfilled' ? kiqiqResult.value : null;
-  const faPayload = fa?.data || {};
-  const kiqiqPayload = kiqiq?.data || {};
-  const faGenerated = faPayload.generated_at || faPayload.updated_at || null;
-  const kiqiqGenerated = kiqiqPayload.generated_at || kiqiqPayload.updated_at || kiqiqPayload.published_at || null;
-  const faFresh = Number.isFinite(Date.parse(faGenerated || '')) &&
-    Date.now() - Date.parse(faGenerated) <= 24 * 60 * 60 * 1000 &&
-    Date.parse(faGenerated) <= Date.now() + 5 * 60 * 1000;
-  const kiqiqRows = Array.isArray(kiqiqPayload.fixtures) ? kiqiqPayload.fixtures :
-    Array.isArray(kiqiqPayload.data?.fixtures) ? kiqiqPayload.data.fixtures : [];
-  const kiqiqFresh = Number.isFinite(Date.parse(kiqiqGenerated || '')) &&
-    Date.now() - Date.parse(kiqiqGenerated) <= 24 * 60 * 60 * 1000 &&
-    Date.parse(kiqiqGenerated) <= Date.now() + 5 * 60 * 1000;
-  const faRows = faFresh && Array.isArray(faPayload.data) ? faPayload.data.map(row => ({
-    ...row, _sourceGeneratedAt: faGenerated
-  })) : [];
-  const validKiqiqRows = kiqiqFresh ? kiqiqRows.map(row => ({
-    ...row, _sourceGeneratedAt: kiqiqGenerated
-  })) : [];
-  res.setHeader('Cache-Control', 'public, max-age=60');
+
+  // A stale cache fallback is useful for fixture display, but must never vote in consensus.
+  const faCached = faResult.status === 'fulfilled' ? faResult.value : null;
+  const kiqiqCached = kiqiqResult.status === 'fulfilled' ? kiqiqResult.value : null;
+  const faUsable = !!faCached && !faCached.stale;
+  const kiqiqUsable = !!kiqiqCached && !kiqiqCached.stale;
+  const fa = faUsable ? sanitizeFootballAnalytics(faCached.data) : {
+    fresh: false, generatedAt: null, ageSeconds: null, count: 0, fixtures: [],
+    error: faCached?.stale ? 'Köhnə keş konsensus üçün istifadə edilmir.' : 'Football Analytics mənbəsinə qoşulmaq mümkün olmadı.'
+  };
+  const kiqiq = kiqiqUsable ? sanitizeKiqiq(kiqiqCached.data) : {
+    fresh: false, generatedAt: null, ageSeconds: null, count: 0, fixtures: [],
+    error: kiqiqCached?.stale ? 'Köhnə keş konsensus üçün istifadə edilmir.' : 'KiqIQ mənbəsinə qoşulmaq mümkün olmadı.'
+  };
+
+  const footballAnalyticsRows = fa.fixtures.map(row => ({
+    ...row, _sourceGeneratedAt: fa.generatedAt
+  }));
+  const kiqiqRows = kiqiq.fixtures.map(row => ({
+    ...row, _sourceGeneratedAt: kiqiq.generatedAt
+  }));
+
+  res.setHeader('Cache-Control', 'no-store');
   return res.json({
     ok: true,
     date,
-    footballAnalytics: faRows,
-    kiqiq: validKiqiqRows,
+    footballAnalytics: footballAnalyticsRows,
+    kiqiq: kiqiqRows,
     sources: {
       footballAnalytics: {
-        ok: !!fa,
-        fresh: faFresh,
-        generatedAt: faGenerated,
-        count: faRows.length,
-        cache: fa?.cached ? (fa.stale ? 'stale-fallback' : 'hit') : 'miss',
-        error: faResult.status === 'rejected' ? faResult.reason.message : (!faFresh ? 'Mənbənin generated_at vaxtı yoxdur və ya 24 saatdan köhnədir.' : null)
+        ok: fa.fresh, fresh: fa.fresh, generatedAt: fa.generatedAt,
+        ageSeconds: fa.ageSeconds, count: fa.count,
+        cache: faCached?.cached ? (faCached.stale ? 'stale-rejected' : 'hit') : 'miss',
+        error: fa.error || (faResult.status === 'rejected' ? faResult.reason.message : null)
       },
       kiqiq: {
-        ok: !!kiqiq,
-        fresh: kiqiqFresh,
-        generatedAt: kiqiqGenerated,
-        count: validKiqiqRows.length,
-        cache: kiqiq?.cached ? (kiqiq.stale ? 'stale-fallback' : 'hit') : 'miss',
-        error: kiqiqResult.status === 'rejected' ? kiqiqResult.reason.message : (!kiqiqFresh ? 'Mənbənin generated_at vaxtı yoxdur və ya 24 saatdan köhnədir.' : null)
+        ok: kiqiq.fresh, fresh: kiqiq.fresh, generatedAt: kiqiq.generatedAt,
+        ageSeconds: kiqiq.ageSeconds, count: kiqiq.count,
+        cache: kiqiqCached?.cached ? (kiqiqCached.stale ? 'stale-rejected' : 'hit') : 'miss',
+        error: kiqiq.error || (kiqiqResult.status === 'rejected' ? kiqiqResult.reason.message : null)
       }
     },
-    consensusAllowed: faRows.length > 0 && validKiqiqRows.length > 0
+    consensusPolicy: 'Only fresh, schema-valid third-party feeds may vote. Team names, competition and kickoff must match; bookmaker/fixture provider does not vote.'
   });
 });
 
@@ -188,23 +192,23 @@ app.get('/api/teams/search', (req, res) => {
   return providerGet('/teams?' + new URLSearchParams({ q }), res);
 });
 app.get('/api/teams/:id/stats', (req, res) => {
-  if (!/^\\d+$/.test(req.params.id)) return res.status(400).json({ ok: false, error: 'Yanlış team id.' });
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ ok: false, error: 'Yanlış team id.' });
   const params = new URLSearchParams();
-  if (req.query.season_id && /^\\d+$/.test(String(req.query.season_id))) params.set('season_id', req.query.season_id);
+  if (req.query.season_id && /^\d+$/.test(String(req.query.season_id))) params.set('season_id', req.query.season_id);
   if (req.query.league_id && ALLOWED_LEAGUE_IDS.has(String(req.query.league_id))) params.set('league_id', req.query.league_id);
   if (req.query.league_id && !ALLOWED_LEAGUE_IDS.has(String(req.query.league_id))) return res.status(400).json({ ok: false, error: 'Yarış ID-si icazəli deyil.' });
   return providerGet('/teams/' + req.params.id + '/stats' + (params.size ? '?' + params.toString() : ''), res);
 });
 app.get('/api/teams/:id/matches', (req, res) => {
-  if (!/^\\d+$/.test(req.params.id)) return res.status(400).json({ ok: false, error: 'Yanlış team id.' });
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ ok: false, error: 'Yanlış team id.' });
   return providerGet('/teams/' + req.params.id + '/matches', res);
 });
 app.get('/api/matches/:id', (req, res) => {
-  if (!/^\\d+$/.test(req.params.id)) return res.status(400).json({ ok: false, error: 'Yanlış match id.' });
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ ok: false, error: 'Yanlış match id.' });
   return providerGet('/matches/' + req.params.id, res);
 });
 app.get('/api/matches/:id/:kind', (req, res) => {
-  if (!/^\\d+$/.test(req.params.id) || !['stats', 'odds', 'probabilities', 'events'].includes(req.params.kind)) {
+  if (!/^\d+$/.test(req.params.id) || !['stats', 'odds', 'probabilities', 'events'].includes(req.params.kind)) {
     return res.status(400).json({ ok: false, error: 'Yanlış match sorğusu.' });
   }
   return providerGet('/matches/' + req.params.id + '/' + req.params.kind, res);
@@ -212,7 +216,7 @@ app.get('/api/matches/:id/:kind', (req, res) => {
 app.get('/api/results', async (req, res) => {
   const from = String(req.query.from || '');
   const to = String(req.query.to || '');
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(from) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(to)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
     return res.status(400).json({ ok: false, error: 'from və to tarixləri YYYY-MM-DD formatında olmalıdır.' });
   }
   const fromMs = Date.parse(from + 'T00:00:00Z');
@@ -238,9 +242,20 @@ app.get('/api/results', async (req, res) => {
         fetchJson(API_BASE + '/fixtures/results?' + query.toString(), { Authorization: 'Bearer ' + API_KEY }), 24 * 60 * 60 * 1000);
     }));
     const allMatches = firstMatches.concat(...more.map(item => item.data.data?.matches || []));
+    const seenResults = new Set();
     const matches = allMatches.filter(match => {
       const id = String(match.league?.league_id ?? match.league_id ?? match.competition?.league_id ?? '');
-      return ALLOWED_LEAGUE_IDS.has(id);
+      const matchId = String(match.match_id ?? match.fixture_id ?? '');
+      const status = String(match.status || '').toLowerCase().replace(/[\\s_-]+/g, '.');
+      const score = match.score || match.result || {};
+      const homeScore = Number(score.home ?? score.home_score ?? match.home_score);
+      const awayScore = Number(score.away ?? score.away_score ?? match.away_score);
+      if (!ALLOWED_LEAGUE_IDS.has(id) || !matchId || seenResults.has(matchId) ||
+          !/^(finished|complete|completed|ended|full.time|ft|aet)$/.test(status) ||
+          !Number.isInteger(homeScore) || !Number.isInteger(awayScore) ||
+          homeScore < 0 || awayScore < 0) return false;
+      seenResults.add(matchId);
+      return true;
     });
     res.setHeader('Cache-Control', 'public, max-age=60');
     return res.json({
@@ -255,7 +270,7 @@ app.get('/api/results', async (req, res) => {
 app.get('/api/fixtures', (req, res) => {
   const date = String(req.query.date || '');
   const leagueId = req.query.league_id;
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return res.status(400).json({ ok: false, error: 'date=YYYY-MM-DD istifadə et.' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ ok: false, error: 'date=YYYY-MM-DD istifadə et.' });
   if (leagueId && !ALLOWED_LEAGUE_IDS.has(String(leagueId))) return res.status(400).json({ ok: false, error: 'Yalnız təsdiqlənmiş 5 yarış dəstəklənir.' });
   const params = new URLSearchParams({ date, limit: String(Math.min(100, Math.max(1, Number(req.query.limit) || 100))), page: '1' });
   if (leagueId) params.set('league_id', leagueId);
@@ -276,9 +291,19 @@ async function footballDataCached(endpoint, res, requestedLeagueId, date, ttl) {
     if (data.success === false) return res.status(502).json({ ok: false, error: 'Footballdata.io uğursuz cavab qaytardı.', details: data });
     const root = data.data || {};
     const rawMatches = root.matches || root.fixtures || (Array.isArray(root) ? root : []);
+    const seen = new Set();
     const matches = rawMatches.filter(match => {
       const id = String(match.league?.league_id ?? match.league_id ?? match.competition?.league_id ?? '');
-      return ALLOWED_LEAGUE_IDS.has(id) && (!requestedLeagueId || id === String(requestedLeagueId));
+      const matchId = String(match.match_id ?? match.fixture_id ?? '');
+      const home = match.home_team?.team_name ?? match.home_team?.name ?? match.home_team_name;
+      const away = match.away_team?.team_name ?? match.away_team?.name ?? match.away_team_name;
+      const kickoff = Number(match.date_unix);
+      if (!ALLOWED_LEAGUE_IDS.has(id) ||
+          (requestedLeagueId && id !== String(requestedLeagueId)) ||
+          !matchId || !home || !away || !Number.isFinite(kickoff) || kickoff <= 0 ||
+          seen.has(matchId)) return false;
+      seen.add(matchId);
+      return true;
     }).map(match => {
       const id = String(match.league?.league_id ?? match.league_id ?? match.competition?.league_id ?? '');
       return { ...match, league_display_name: ALLOWED_LEAGUES[id] };
