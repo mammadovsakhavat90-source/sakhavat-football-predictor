@@ -4,6 +4,16 @@
   "private": true,
   "description": "SAKHAVAT FOOTBALL PREDICTOR 1.0 starter app",
   "main": "server/index.js",
-  "scripts": {"start": "node server/index.js"},
-  "dependencies": {"express": "^4.21.2"}
+  "scripts": {
+    "start": "node server/index.js",
+    "cap:sync": "cap sync android"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "@capacitor/core": "^7.4.3",
+    "@capacitor/android": "^7.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3"
+  }
 }
