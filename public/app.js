@@ -108,40 +108,36 @@ function teamLabelsMatch(a, b) {
   const x = normalizeTeamLabel(a), y = normalizeTeamLabel(b);
   return !!x && !!y && x === y;
 }
-async function fetchGlobalPicks() {
-  if (globalPicksCache && Date.now() - globalPicksFetchedAt < 900000) return globalPicksCache;
-  if (!globalPicksPromise) {
-    globalPicksPromise = fetchWithTimeout('https://footballanalytics.pro/data/upcoming.json',
-      { cache: 'no-store' }, 7000).then(async response => {
-        if (!response.ok) return [];
-        const payload = await response.json();
-        globalPicksCache = Array.isArray(payload.data) ? payload.data : [];
-        globalPicksFetchedAt = Date.now();
-        return globalPicksCache;
-      }).catch(() => []).finally(() => { globalPicksPromise = null; });
+const consensusFeedCache = new Map();
+async function fetchConsensusFeeds(selectedDate) {
+  if (!selectedDate) return { footballAnalytics: [], kiqiq: [], sources: {} };
+  const cached = consensusFeedCache.get(selectedDate);
+  if (cached && Date.now() - cached.at < 300000) return cached.data;
+  try {
+    const response = await fetchWithTimeout(apiUrl('/api/consensus?' + new URLSearchParams({ date: selectedDate })),
+      { cache: 'no-store' }, 15000);
+    if (!response.ok) throw new Error('Konsensus mənbələri serverdən alınmadı');
+    const payload = await response.json();
+    if (!payload || payload.ok !== true) throw new Error('Konsensus cavabı etibarsızdır');
+    const data = {
+      footballAnalytics: Array.isArray(payload.footballAnalytics) ? payload.footballAnalytics : [],
+      kiqiq: Array.isArray(payload.kiqiq) ? payload.kiqiq : [],
+      sources: payload.sources || {}
+    };
+    consensusFeedCache.set(selectedDate, { at: Date.now(), data });
+    return data;
+  } catch (error) {
+    console.warn('Consensus sources unavailable:', error);
+    return { footballAnalytics: [], kiqiq: [], sources: {} };
   }
-  return globalPicksPromise;
+}
+async function fetchGlobalPicks() {
+  const feeds = await fetchConsensusFeeds(dateInput.value);
+  return feeds.footballAnalytics;
 }
 async function fetchKiqiqPredictions(selectedDate) {
-  if (!selectedDate) return [];
-  const cached = kiqiqCache.get(selectedDate);
-  if (cached && Date.now() - cached.fetchedAt < 300000) return cached.promise;
-  const promise = (async () => {
-    try {
-      // Include the previous UTC day because late-night Baku fixtures can fall on
-      // the previous calendar day in UTC.
-      const fromDate = new Date(Date.parse(selectedDate + 'T00:00:00Z') - 86400000)
-        .toISOString().slice(0, 10);
-      const params = new URLSearchParams({ from: fromDate, to: selectedDate, limit: '100' });
-      const response = await fetchWithTimeout('https://kiqiq.com/api/v1/predictions?' + params,
-        { cache: 'no-store' }, 8000);
-      if (!response.ok) return [];
-      const payload = await response.json();
-      return Array.isArray(payload.fixtures) ? payload.fixtures : [];
-    } catch { return []; }
-  })();
-  kiqiqCache.set(selectedDate, { promise, fetchedAt: Date.now() });
-  return promise;
+  const feeds = await fetchConsensusFeeds(selectedDate);
+  return feeds.kiqiq;
 }
 function findGlobalPick(match, rows) {
   const kickoff = Number(match.date_unix) * 1000;
@@ -150,8 +146,14 @@ function findGlobalPick(match, rows) {
   return rows.find(row => {
     const externalTime = Date.parse(row.kickoff_utc || '');
     const writtenAt = Date.parse(row.pick_written_utc || '');
-    return Number.isFinite(externalTime) && Math.abs(externalTime - kickoff) <= 2 * 60 * 60 * 1000 &&
-      Number.isFinite(writtenAt) && writtenAt < externalTime && externalTime - writtenAt <= 7 * 86400000 &&
+    const sourceGeneratedAt = Date.parse(row._sourceGeneratedAt || '');
+    const sourceIsFresh = Number.isFinite(sourceGeneratedAt) &&
+      Date.now() - sourceGeneratedAt <= 24 * 60 * 60 * 1000 &&
+      sourceGeneratedAt <= Date.now() + 5 * 60 * 1000;
+    return sourceIsFresh && Number.isFinite(externalTime) &&
+      Math.abs(externalTime - kickoff) <= 2 * 60 * 60 * 1000 &&
+      Number.isFinite(writtenAt) && writtenAt < externalTime &&
+      externalTime - writtenAt <= 7 * 86400000 &&
       teamLabelsMatch(home, row.home_team) && teamLabelsMatch(away, row.away_team) &&
       ['1', 'X', '2'].includes(String(row.pick).toUpperCase());
   }) || null;
@@ -162,7 +164,13 @@ function findKiqiqPrediction(match, rows) {
   const home = teamName(match, 'home'), away = teamName(match, 'away');
   return rows.find(row => {
     const externalTime = Date.parse(row.kickoff_iso || '');
-    return Number.isFinite(externalTime) && Math.abs(externalTime - kickoff) <= 4 * 60 * 60 * 1000 &&
+    const sourceGeneratedAt = Date.parse(row._sourceGeneratedAt || row.published_at || row.created_at || '');
+    const sourceIsFresh = Number.isFinite(sourceGeneratedAt) &&
+      Date.now() - sourceGeneratedAt <= 24 * 60 * 60 * 1000 &&
+      sourceGeneratedAt <= Date.now() + 5 * 60 * 1000 &&
+      sourceGeneratedAt < externalTime;
+    return sourceIsFresh && Number.isFinite(externalTime) &&
+      Math.abs(externalTime - kickoff) <= 4 * 60 * 60 * 1000 &&
       teamLabelsMatch(home, row.home) && teamLabelsMatch(away, row.away);
   }) || null;
 }
@@ -189,7 +197,7 @@ function finalVerdict(match, analysis, feeds) {
     return { confirmed: false, pick: null, text: 'FINAL VERDICT: model və bazar arasında 15 faiz bəndindən böyük fərq var; əlavə yoxlama tələb olunur' };
   }
   const marketText = ' · bazar ehtimalı ' + percent(analysis.market[marketKey]);
-  return { confirmed: true, pick: modelPick, text: 'FINAL VERDICT: TƏSDİQLƏNDİ · model və 2 müstəqil mənbə eyni seçimdədir: ' + modelPick + marketText };
+  return { confirmed: true, pick: modelPick, text: 'FINAL VERDICT: TƏSDİQLƏNDİ · model və 2 xarici proqnoz mənbəyi eyni seçimdədir: ' + modelPick + marketText };
 }
 function globalConsensusPick(match, analysis, feeds) {
   // Footballdata.io is the fixture/statistics provider, not an independent consensus source.
@@ -223,7 +231,7 @@ function globalConsensusText(match, analysis, feeds) {
   sources.forEach(source => { counts[source.pick]++; });
   const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
   if (ranked[0][1] === ranked[1][1]) return 'GLOBAL CONSENSUS: iki müstəqil mənbə razılaşmır; yekun seçim yoxdur | ' + names;
-  return 'GLOBAL CONSENSUS: 2/2 müstəqil mənbə eyni istiqamətdədir · ' + ranked[0][0] + ' | ' + names;
+  return 'GLOBAL CONSENSUS: 2/2 xarici mənbə eyni istiqamətdədir · ' + ranked[0][0] + ' | ' + names;
 }
 const teamStatsCache = new Map();
 const matchOddsCache = new Map();
