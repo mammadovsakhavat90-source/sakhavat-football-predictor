@@ -223,18 +223,19 @@ app.get('/api/results', async (req, res) => {
   if (!API_KEY) return res.status(503).json({ ok: false, error: 'FOOTBALLDATA_API_KEY konfiqurasiya edilməyib.' });
   try {
     const params = new URLSearchParams({ from, to, page: '1', limit: '100' });
-    const firstPage = await cachedJson('footballdata:results:' + params.toString(), 30 * 60 * 1000, () =>
-      fetchJson(API_BASE + '/fixtures/results?' + params.toString(), { Authorization: 'Bearer ' + API_KEY }), 2 * 60 * 60 * 1000);
+    const firstPage = await cachedJson('footballdata:results:' + params.toString(), 6 * 60 * 60 * 1000, () =>
+      fetchJson(API_BASE + '/fixtures/results?' + params.toString(), { Authorization: 'Bearer ' + API_KEY }), 24 * 60 * 60 * 1000);
     if (firstPage.data.success === false) throw new Error('Footballdata.io nəticə sorğusu uğursuz oldu.');
     const root = firstPage.data.data || {};
     const firstMatches = Array.isArray(root.matches) ? root.matches : [];
-    const totalPages = Math.max(1, Number(firstPage.data.meta?.pagination?.total_pages) || 1);
+    const reportedPages = Number(firstPage.data.meta?.pagination?.total_pages) || 0;
+    const totalPages = Math.max(1, reportedPages || (firstMatches.length >= 100 ? 3 : 1));
     const pageCount = Math.min(totalPages, 3);
     const more = await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => {
       const page = index + 2;
       const query = new URLSearchParams({ from, to, page: String(page), limit: '100' });
-      return cachedJson('footballdata:results:' + query.toString(), 30 * 60 * 1000, () =>
-        fetchJson(API_BASE + '/fixtures/results?' + query.toString(), { Authorization: 'Bearer ' + API_KEY }), 2 * 60 * 60 * 1000);
+      return cachedJson('footballdata:results:' + query.toString(), 6 * 60 * 60 * 1000, () =>
+        fetchJson(API_BASE + '/fixtures/results?' + query.toString(), { Authorization: 'Bearer ' + API_KEY }), 24 * 60 * 60 * 1000);
     }));
     const allMatches = firstMatches.concat(...more.map(item => item.data.data?.matches || []));
     const matches = allMatches.filter(match => {
@@ -245,7 +246,7 @@ app.get('/api/results', async (req, res) => {
     return res.json({
       ok: true, provider: 'Footballdata.io', matches,
       meta: { from, to, providerMatches: allMatches.length, filteredMatches: matches.length,
-        pagesFetched: pageCount, truncated: totalPages > pageCount,
+        pagesFetched: pageCount, truncated: totalPages > pageCount || (!reportedPages && allMatches.length >= 300),
         cache: firstPage.cached ? (firstPage.stale ? 'stale-fallback' : 'hit') : 'miss' }
     });
   } catch (error) { return sendProviderError(res, error); }
