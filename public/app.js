@@ -573,7 +573,7 @@ function kickoffClock(match) {
   const unix = Number(match.date_unix);
   if (unix > 0) return new Intl.DateTimeFormat('az-AZ',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Baku'}).format(new Date(unix*1000));
   const raw = String(first(match.match_date,match.date,match.kickoff,''));
-  const d = new Date(/^\\d{4}-\\d{2}-\\d{2} /.test(raw) ? raw.replace(' ','T')+'Z' : raw);
+  const d = new Date(/^\d{4}-\d{2}-\d{2} /.test(raw) ? raw.replace(' ','T')+'Z' : raw);
   return Number.isNaN(d.getTime()) ? 'Vaxt yoxdur' : new Intl.DateTimeFormat('az-AZ',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Baku'}).format(d);
 }
 function leagueLabel(match) { return first(match.league?.name,match.league_name,match.competition?.name,'Liqa'); }
