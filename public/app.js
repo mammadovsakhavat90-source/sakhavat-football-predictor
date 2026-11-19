@@ -191,9 +191,9 @@ function finalVerdict(match, analysis, feeds) {
   }
   const modelPick = analysis.labels?.[analysis.best] || null;
   const consensusPick = globalConsensusPick(match, analysis, feeds);
-  if (!consensusPick) return { confirmed: false, pick: null, text: 'FINAL VERDICT: iki müstəqil mənbədən təsdiqlənmiş konsensus yoxdur; yekun seçim verilmir' };
+  if (!consensusPick) return { confirmed: false, pick: null, text: 'FINAL VERDICT: iki xarici mənbədən təsdiqlənmiş konsensus yoxdur; yekun seçim verilmir' };
   if (!modelPick || consensusPick !== modelPick) {
-    return { confirmed: false, pick: null, text: 'FINAL VERDICT: SAKHAVAT modeli və müstəqil konsensus fərqlənir; yekun seçim verilmir' };
+    return { confirmed: false, pick: null, text: 'FINAL VERDICT: SAKHAVAT modeli və xarici mənbələrin konsensusu fərqlənir; yekun seçim verilmir' };
   }
   const marketKey = { '1':'home', 'X':'draw', '2':'away' }[modelPick];
   if (!analysis.market) return { confirmed: false, pick: null, text: 'FINAL VERDICT: müqayisə üçün etibarlı bazar əmsalı yoxdur; yekun seçim verilmir' };
@@ -228,13 +228,13 @@ function globalConsensusText(match, analysis, feeds) {
   const sources = [];
   if (kiqiqPick) sources.push({ name: 'KiqIQ', pick: kiqiqPick });
   if (['1', 'X', '2'].includes(externalPick)) sources.push({ name: 'Football Analytics', pick: externalPick });
-  if (!sources.length) return 'GLOBAL CONSENSUS: müstəqil proqnoz mənbəsi tapılmadı; konsensus hesablanmır';
+  if (!sources.length) return 'GLOBAL CONSENSUS: xarici proqnoz mənbəsi tapılmadı; konsensus hesablanmır';
   const names = sources.map(source => source.name + ': ' + source.pick).join(' · ');
-  if (sources.length < 2) return 'GLOBAL CONSENSUS: yalnız 1 müstəqil mənbə mövcuddur · ' + names;
+  if (sources.length < 2) return 'GLOBAL CONSENSUS: yalnız 1 xarici mənbə mövcuddur · ' + names;
   const counts = { '1': 0, X: 0, '2': 0 };
   sources.forEach(source => { counts[source.pick]++; });
   const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  if (ranked[0][1] === ranked[1][1]) return 'GLOBAL CONSENSUS: iki müstəqil mənbə razılaşmır; yekun seçim yoxdur | ' + names;
+  if (ranked[0][1] === ranked[1][1]) return 'GLOBAL CONSENSUS: iki xarici mənbə razılaşmır; yekun seçim yoxdur | ' + names;
   return 'GLOBAL CONSENSUS: 2/2 xarici mənbə eyni istiqamətdədir · ' + ranked[0][0] + ' | ' + names;
 }
 const teamStatsCache = new Map();
