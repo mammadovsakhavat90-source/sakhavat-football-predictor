@@ -145,6 +145,31 @@ async function fetchKiqiqPredictions(selectedDate) {
   const feeds = await fetchConsensusFeeds(selectedDate);
   return feeds.kiqiq;
 }
+function normalizeCompetitionLabel(value) {
+  return String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase().replace(/\\b(uefa|fifa)\\b/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();
+}
+function competitionLabelsMatch(match, externalCompetition) {
+  const local = normalizeCompetitionLabel(leagueLabel(match));
+  const external = normalizeCompetitionLabel(externalCompetition);
+  if (!local || !external) return false;
+  const aliases = {
+    'la liga': 'laliga',
+    'laliga': 'laliga',
+    'premier league': 'premier league',
+    'champions league': 'champions league',
+    'uefa champions league': 'champions league',
+    'europa league': 'europa league',
+    'world cup': 'world cup',
+    'fifa world cup': 'world cup'
+  };
+  const compactLocal = local.replace(/\\s/g, '');
+  const compactExternal = external.replace(/\\s/g, '');
+  const a = aliases[local] || aliases[compactLocal] || local;
+  const b = aliases[external] || aliases[compactExternal] || external;
+  return a === b;
+}
 function findGlobalPick(match, rows) {
   const kickoff = Number(match.date_unix) * 1000;
   if (!(kickoff > 0)) return null;
@@ -161,7 +186,7 @@ function findGlobalPick(match, rows) {
       Number.isFinite(writtenAt) && writtenAt < externalTime &&
       externalTime - writtenAt <= 7 * 86400000 &&
       teamLabelsMatch(home, row.home_team) && teamLabelsMatch(away, row.away_team) &&
-      ['1', 'X', '2'].includes(String(row.pick).toUpperCase());
+      competitionLabelsMatch(match, row.league) && ['1', 'X', '2'].includes(String(row.pick).toUpperCase());
   }) || null;
 }
 function findKiqiqPrediction(match, rows) {
@@ -177,7 +202,8 @@ function findKiqiqPrediction(match, rows) {
       sourceGeneratedAt < externalTime;
     return sourceIsFresh && Number.isFinite(externalTime) &&
       Math.abs(externalTime - kickoff) <= 4 * 60 * 60 * 1000 &&
-      teamLabelsMatch(home, row.home) && teamLabelsMatch(away, row.away);
+      teamLabelsMatch(home, row.home) && teamLabelsMatch(away, row.away) &&
+      competitionLabelsMatch(match, row.competition);
   }) || null;
 }
 function normalizeExternalProbabilities(row) {
