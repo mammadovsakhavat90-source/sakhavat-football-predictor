@@ -109,11 +109,13 @@ function teamLabelsMatch(a, b) {
   return !!x && !!y && x === y;
 }
 const consensusFeedCache = new Map();
+const consensusFeedPromises = new Map();
 async function fetchConsensusFeeds(selectedDate) {
   if (!selectedDate) return { footballAnalytics: [], kiqiq: [], sources: {} };
   const cached = consensusFeedCache.get(selectedDate);
   if (cached && Date.now() - cached.at < 300000) return cached.data;
-  try {
+  if (consensusFeedPromises.has(selectedDate)) return consensusFeedPromises.get(selectedDate);
+  const request = (async () => { try {
     const response = await fetchWithTimeout(apiUrl('/api/consensus?' + new URLSearchParams({ date: selectedDate })),
       { cache: 'no-store' }, 15000);
     if (!response.ok) throw new Error('Konsensus mənbələri serverdən alınmadı');
@@ -129,7 +131,11 @@ async function fetchConsensusFeeds(selectedDate) {
   } catch (error) {
     console.warn('Consensus sources unavailable:', error);
     return { footballAnalytics: [], kiqiq: [], sources: {} };
-  }
+  } finally {
+    consensusFeedPromises.delete(selectedDate);
+  } })();
+  consensusFeedPromises.set(selectedDate, request);
+  return request;
 }
 async function fetchGlobalPicks() {
   const feeds = await fetchConsensusFeeds(dateInput.value);
@@ -775,8 +781,9 @@ async function loadFixtures() {
       const hasProbabilities = !!normalize1x2(existingProbabilities);
       const shouldEnrich = classifyStatus(match) === 'scheduled';
       const oddsPromise = !has1x2 && shouldEnrich ? fetchMatchOdds(match.match_id) : Promise.resolve(null);
-      const probabilitiesPromise = !hasProbabilities && shouldEnrich
-        ? fetchMatchProbabilities(match.match_id) : Promise.resolve(null);
+      // Provider 1X2 probabilities are informational only, not a consensus vote.
+      // Do not spend a second API request per fixture when the list lacks this optional block.
+      const probabilitiesPromise = Promise.resolve(null);
       if (!leagueId || !seasonId || !homeId || !awayId) {
         const [odds, probabilities] = await Promise.all([oddsPromise, probabilitiesPromise]);
         enrichedGames.push({
