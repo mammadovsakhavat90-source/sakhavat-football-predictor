@@ -593,7 +593,7 @@ function recommendationSets(matches,feeds) {
     const marketClose=a.market && Math.abs(a.outcomes[modelPick]-a.market[modelPick])<=9;
     const providerClose=a.provider && Number.isFinite(Number(a.provider.home_win)) &&
       Math.abs(a.outcomes[modelPick]-Number(a.provider[{home:'home_win',draw:'draw',away:'away_win'}[modelPick]]))<=12;
-    if(quality && p>=58 && (consensus===a.labels[modelPick] || marketClose || providerClose)){
+    if(quality && p>=58 && (consensus ? consensus===a.labels[modelPick] : (marketClose || providerClose))){
       const item={match,analysis:a,pick:a.labels[modelPick],prob:p,quality,consensus};
       const lid=String(match.league?.league_id||match.league_name||'unknown');
       const old=perLeague.get(lid);
