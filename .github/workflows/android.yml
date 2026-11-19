@@ -44,6 +44,7 @@ jobs:
           node --check public/app.js
           node --check server/index.js
           node --check server/prediction.js
+          node --check server/consensus.js
           node --check public/sw.js
           npm test
       - name: Configure reliable Maven mirrors
