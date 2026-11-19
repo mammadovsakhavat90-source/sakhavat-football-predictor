@@ -21,6 +21,23 @@ function teamName(match, side) {
   return decodeText(first(team.team_name, team.name, team.display_name, match[side + '_team_name'],
     match[side + '_name'], match[side + '_team'], side === 'home' ? 'Ev sahibi' : 'Qonaq'));
 }
+function teamLogo(match, side) {
+  const team = match[side + '_team'] || match[side] || {};
+  const candidate = first(team.team_logo, team.logo, team.logo_url, team.image);
+  if (!candidate) return null;
+  try {
+    const url = new URL(String(candidate));
+    if (!['https:', 'http:'].includes(url.protocol)) return null;
+    const img = document.createElement('img');
+    img.className = 'team-logo';
+    img.src = url.href;
+    img.alt = teamName(match, side);
+    img.loading = 'lazy';
+    img.referrerPolicy = 'no-referrer';
+    img.onerror = () => img.remove();
+    return img;
+  } catch { return null; }
+}
 function rawStatus(match) {
   return String(first(match.status, match.state, match.status_localized, '')).trim().toLowerCase();
 }
@@ -626,7 +643,18 @@ async function loadFixtures() {
       const leagueName = document.createElement('div'); leagueName.className = 'meta';
       leagueName.textContent = first(match.league?.name, match.league_name, match.competition?.name, 'Liqa');
       const teams = document.createElement('div'); teams.className = 'teams';
-      teams.textContent = teamName(match, 'home') + '  —  ' + teamName(match, 'away');
+      const homeLogo = teamLogo(match, 'home'), awayLogo = teamLogo(match, 'away');
+      if (homeLogo || awayLogo) {
+        const visual = document.createElement('div'); visual.className = 'team-visual';
+        if (homeLogo) visual.append(homeLogo);
+        const names = document.createElement('span');
+        names.textContent = teamName(match, 'home') + '  —  ' + teamName(match, 'away');
+        visual.append(names);
+        if (awayLogo) visual.append(awayLogo);
+        teams.append(visual);
+      } else {
+        teams.textContent = teamName(match, 'home') + '  —  ' + teamName(match, 'away');
+      }
       const meta = document.createElement('div'); meta.className = 'meta';
       meta.textContent = matchTime(match) + ' · ' + statusLabel(match);
       left.append(leagueName, teams, meta);
