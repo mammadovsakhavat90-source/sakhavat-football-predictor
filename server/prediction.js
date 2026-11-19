@@ -10,10 +10,10 @@ function predict(input){
  const eh=input.homeElo==null?null:finite(input.homeElo,'homeElo',800,2400),ea=input.awayElo==null?null:finite(input.awayElo,'awayElo',800,2400);
  if(eh!=null&&ea!=null){const f=Math.pow(10,(eh+60-ea)/1200),s=Math.sqrt(f);hx*=s;ax/=s;}
  hx=Math.max(.15,Math.min(4.5,hx));ax=Math.max(.15,Math.min(4.5,ax));
- const rho=input.dixonColesRho==null?-.08:Number(input.dixonColesRho);if(!Number.isFinite(rho)||rho<-.2||rho>.2)throw new Error('dixonColesRho -0.2 ilə 0.2 arasında olmalıdır.');
+ const rho=0; // No fitted historical rho is connected; use the neutral Poisson baseline.
  let home=0,draw=0,away=0,total=0;const scores=[];
  for(let h=0;h<=8;h++)for(let a=0;a<=8;a++){let p=poisson(hx,h)*poisson(ax,a);if(h===0&&a===0)p*=1-hx*ax*rho;else if(h===0&&a===1)p*=1+hx*rho;else if(h===1&&a===0)p*=1+ax*rho;else if(h===1&&a===1)p*=1-rho;total+=p;if(h>a)home+=p;else if(h===a)draw+=p;else away+=p;scores.push({score:h+'-'+a,p});}
  const pct=v=>Number((v/total*100).toFixed(1));scores.sort((x,y)=>y.p-x.p);
- return {model:'SAKHAVAT Poisson + Dixon-Coles'+(eh!=null&&ea!=null?' + Elo':''),expectedGoals:{home:Number(hx.toFixed(2)),away:Number(ax.toFixed(2))},probabilities:{homeWin:pct(home),draw:pct(draw),awayWin:pct(away)},mostLikelyScores:scores.slice(0,5).map(x=>({score:x.score,probability:Number((x.p/total*100).toFixed(1))})),dataQuality:{eloUsed:eh!=null&&ea!=null,xgUsed:input.homeXgFor!=null&&input.awayXgAgainst!=null&&input.awayXgFor!=null&&input.homeXgAgainst!=null,source:input.source||'user_supplied_statistics',dixonColesRho:rho,rhoCalibrated:input.dixonColesRho!=null},note:'Ehtimallar verilmiş statistik girişlərə əsaslanır. Girişlər real və eyni liqa/sezon üzrə deyilsə nəticə etibarlı deyil.'};
+ return {model:'SAKHAVAT Poisson baseline'+(eh!=null&&ea!=null?' + supplied Elo inputs':''),expectedGoals:{home:Number(hx.toFixed(2)),away:Number(ax.toFixed(2))},probabilities:{homeWin:pct(home),draw:pct(draw),awayWin:pct(away)},mostLikelyScores:scores.slice(0,5).map(x=>({score:x.score,probability:Number((x.p/total*100).toFixed(1))})),dataQuality:{eloUsed:eh!=null&&ea!=null,xgUsed:input.homeXgFor!=null&&input.awayXgAgainst!=null&&input.awayXgFor!=null&&input.homeXgAgainst!=null,source:input.source||'user_supplied_statistics',dixonColesRho:rho,rhoCalibrated:false},note:'Ehtimallar verilmiş statistik girişlərə əsaslanır. Girişlər real və eyni liqa/sezon üzrə deyilsə nəticə etibarlı deyil.'};
 }
 module.exports={predict};
