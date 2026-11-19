@@ -639,11 +639,21 @@ function renderFixtureCard(match,analysis,feeds){
   card.append(left,score);
   const detail=document.createElement('div');detail.className='match-analysis';
   if(analysis){
-    const line=document.createElement('div');line.textContent='SAKHAVAT MODEL · 1 '+percent(analysis.outcomes.home)+' · X '+percent(analysis.outcomes.draw)+' · 2 '+percent(analysis.outcomes.away);
-    const market=document.createElement('div');market.textContent=analysis.market?'BAZAR (marjasız) · 1 '+percent(analysis.market.home)+' · X '+percent(analysis.market.draw)+' · 2 '+percent(analysis.market.away):'BAZAR · əmsal məlumatı yoxdur';
-    const scores=document.createElement('div');scores.textContent='Ən ehtimallı hesablar: '+analysis.scores.map(x=>x.score).join(' · ')+' | xG '+analysis.hx.toFixed(2)+' - '+analysis.ax.toFixed(2);
+    const line=document.createElement('div');line.textContent='SAKHAVAT MODEL (xG · Poisson/DC): 1 '+percent(analysis.outcomes.home)+' · X '+percent(analysis.outcomes.draw)+' · 2 '+percent(analysis.outcomes.away);
+    const market=document.createElement('div');market.textContent=analysis.market?'BAZAR (marjasız) · 1 '+percent(analysis.market.home)+' · X '+percent(analysis.market.draw)+' · 2 '+percent(analysis.market.away):'BAZAR: əmsal məlumatı yoxdur';
+    const provider=document.createElement('div');
+    const pv=analysis.provider||{};
+    if(match._providerProbabilityRepeated) provider.textContent='PROVIDER EHTİMALI: təkrarlanan göstərici olduğuna görə etibarsız sayıldı';
+    else if(['home_win','draw','away_win'].every(k=>Number.isFinite(Number(pv[k])))) provider.textContent='PROVIDER EHTİMALI: 1 '+percent(pv.home_win)+' · X '+percent(pv.draw)+' · 2 '+percent(pv.away_win);
+    else provider.textContent='PROVIDER EHTİMALI: etibarlı 1X2 məlumatı yoxdur';
+    const scores=document.createElement('div');scores.textContent='Ən ehtimallı hesablar: '+analysis.scores.map(x=>x.score).join(' · ')+' | xG: '+analysis.hx.toFixed(2)+' - '+analysis.ax.toFixed(2);
+    const homeStats=match._teamStats?.home,awayStats=match._teamStats?.away;
+    const teamData=document.createElement('div');
+    if(homeStats&&awayStats) teamData.textContent='TEAM xG (eyni liqa/mövsüm): '+homeStats.xgFor.toFixed(2)+'/'+homeStats.xgAgainst.toFixed(2)+' · '+awayStats.xgFor.toFixed(2)+'/'+awayStats.xgAgainst.toFixed(2)+' | forma: '+(homeStats.form||'—')+' / '+(awayStats.form||'—');
+    else teamData.textContent='TEAM xG: eyni liqa və mövsüm üzrə kifayət qədər təsdiqlənmiş statistika yoxdur';
+    const consensus=document.createElement('div');consensus.textContent=globalConsensusText(match,analysis,feeds);
     const verdict=document.createElement('div');verdict.className='verdict';verdict.textContent=finalVerdict(match,analysis,feeds).text;
-    detail.append(line,market,scores,verdict);
+    detail.append(line,market,provider,scores,teamData,consensus,verdict);
   }else{const note=document.createElement('div');note.textContent='SAKHAVAT MODEL: matçöncəsi xG məlumatı yoxdur; proqnoz hesablanmadı.';detail.append(note);}
   card.append(detail);return card;
 }
