@@ -50,7 +50,7 @@ The backend rejects other competition IDs and filters fixture responses to this 
 
 ## Caching and PWA
 
-- The backend caches fixtures, team statistics, match details, odds and external feeds in process memory. Team statistics use a longer cache window; odds and live fixture data use shorter windows. Expired cached data may be used only as a fallback when an upstream request fails.
+- The free Footballdata.io tier has a monthly request allowance, so the backend caches fixtures, team statistics, match details, odds, results and external feeds in process memory. Team statistics use a longer cache window; odds and live fixture data use shorter windows. Expired cached data may be used only as a fallback when an upstream request fails. The provider documents a 1,000-request free allowance; monitor actual account usage.
 - Cache contents are instance-local and are cleared when the Render process restarts. A persistent shared cache/database is not configured.
 - The service worker caches only the static app shell for offline opening. API responses and match data are never cached for offline use.
 - Scheduled fixture refresh is slower than live-match refresh to reduce free-plan API usage.
