@@ -1,6 +1,9 @@
 const dateInput = document.getElementById('matchDate');
 const matchesBox = document.getElementById('matchList');
 const connection = document.getElementById('connection');
+const connectionState = document.getElementById('connectionState');
+let currentPickFilter = 'all';
+let latestMatches = [];
 const API_ORIGIN = 'https://sakhavat-football-predictor.onrender.com';
 const apiUrl = path => API_ORIGIN + path;
 const bakuParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Baku', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
@@ -562,8 +565,109 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 75000) {
 async function checkConnection() {
   try {
     const r = await fetchWithTimeout(apiUrl('/api/status'), { cache: 'no-store' }, 75000); const d = await r.json();
-    connection.textContent = d.apiConfigured ? 'API aktivdir · ' + (d.provider || 'Provider') : 'API açarı yoxdur';
-  } catch { connection.textContent = 'Bağlantı xətası'; }
+    const label = d.apiConfigured ? 'API aktivdir · ' + (d.provider || 'Provider') : 'API açarı yoxdur';
+    connection.textContent = label; if (connectionState) connectionState.textContent = label;
+  } catch { connection.textContent = 'Bağlantı xətası'; if (connectionState) connectionState.textContent = 'Bağlantı xətası'; }
+}
+function kickoffClock(match) {
+  const unix = Number(match.date_unix);
+  if (unix > 0) return new Intl.DateTimeFormat('az-AZ',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Baku'}).format(new Date(unix*1000));
+  const raw = String(first(match.match_date,match.date,match.kickoff,''));
+  const d = new Date(/^\\d{4}-\\d{2}-\\d{2} /.test(raw) ? raw.replace(' ','T')+'Z' : raw);
+  return Number.isNaN(d.getTime()) ? 'Vaxt yoxdur' : new Intl.DateTimeFormat('az-AZ',{hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Baku'}).format(d);
+}
+function leagueLabel(match) { return first(match.league?.name,match.league_name,match.competition?.name,'Liqa'); }
+function pickOdds(match,key) {
+  const odds=normalizeOdds(match.odds)?.match_winner;
+  return odds && Number.isFinite(Number(odds[key])) ? Number(odds[key]) : null;
+}
+function recommendationSets(matches,feeds) {
+  const safe=[],value=[];
+  const perLeague=new Map();
+  for(const match of matches){
+    if(classifyStatus(match)!=='scheduled') continue;
+    const a=matchAnalysis(match); if(!a) continue;
+    const quality=!!(match._teamStats?.home&&match._teamStats?.away);
+    const consensus=globalConsensusPick(match,a,feeds);
+    const modelPick=a.best, p=a.outcomes[modelPick];
+    const marketClose=a.market && Math.abs(a.outcomes[modelPick]-a.market[modelPick])<=9;
+    const providerClose=a.provider && Number.isFinite(Number(a.provider.home_win)) &&
+      Math.abs(a.outcomes[modelPick]-Number(a.provider[{home:'home_win',draw:'draw',away:'away_win'}[modelPick]]))<=12;
+    if(quality && p>=58 && (consensus===a.labels[modelPick] || marketClose || providerClose)){
+      const item={match,analysis:a,pick:a.labels[modelPick],prob:p,quality,consensus};
+      const lid=String(match.league?.league_id||match.league_name||'unknown');
+      const old=perLeague.get(lid);
+      if(!old||item.prob>old.prob) perLeague.set(lid,item);
+    }
+    const keys=['home','draw','away'];
+    for(const key of keys){
+      const odds=pickOdds(match,key);
+      if(!quality||!a.market||!odds||odds<2.0) continue;
+      const edge=a.outcomes[key]-a.market[key];
+      if(edge>=3 && a.outcomes[key]>=22 && a.outcomes[key]<=58){
+        value.push({match,analysis:a,pick:a.labels[key],prob:a.outcomes[key],odds,edge,quality});
+      }
+    }
+  }
+  safe.push(...perLeague.values());
+  safe.sort((a,b)=>b.prob-a.prob);
+  value.sort((a,b)=>b.edge-a.edge);
+  return {safe:safe.slice(0,5),value:value.slice(0,8)};
+}
+function renderPickCard(item,risky=false) {
+  const card=document.createElement('article');card.className='pick-card';
+  const head=document.createElement('div');head.className='pick-card-head';
+  const left=document.createElement('div');
+  const league=document.createElement('div');league.className='pick-league';league.textContent=leagueLabel(item.match)+' · '+kickoffClock(item.match)+' Bakı';
+  const teams=document.createElement('strong');teams.textContent=teamName(item.match,'home')+' — '+teamName(item.match,'away');
+  left.append(league,teams);
+  const badge=document.createElement('span');badge.className=risky?'badge-risk':'badge-safe';badge.textContent=risky?'RİSKLİ SEÇİM':'YÜKSƏK EHTİMAL';
+  head.append(left,badge);
+  const selection=document.createElement('div');selection.className='pick-selection';selection.textContent='Seçim: '+item.pick;
+  const stats=document.createElement('div');stats.className='pick-stats';
+  const p=document.createElement('span');p.textContent='Model: '+percent(item.prob);stats.append(p);
+  if(risky){const o=document.createElement('span');o.textContent='Əmsal: '+item.odds.toFixed(2);stats.append(o);const e=document.createElement('span');e.textContent='Model üstünlüyü: +'+item.edge.toFixed(1)+' pp';stats.append(e);}
+  else {const q=document.createElement('span');q.textContent='Məlumat: xG + forma';stats.append(q);if(item.consensus){const cs=document.createElement('span');cs.textContent='Konsensus: '+item.consensus;stats.append(cs);}}
+  const reason=document.createElement('div');reason.className='pick-reason';reason.textContent=risky?'Yüksək əmsal və bazarla müqayisədə müsbət model fərqi var. Risk yüksəkdir, mərc zəmanəti deyil.':'Komanda statistikası mövcuddur və model ehtimalı dəstəkləyici siqnallarla uyğunlaşır. Bu, zəmanət deyil.';
+  card.append(head,selection,stats,reason);return card;
+}
+function renderRecommendations(matches,feeds){
+  const sets=recommendationSets(matches,feeds);
+  const safeBox=document.getElementById('safePicks'),valueBox=document.getElementById('valuePicks');
+  if(safeBox){safeBox.replaceChildren();if(!sets.safe.length){const p=document.createElement('p');p.className='notice';p.textContent='Bu tarixdə 5 liqada yüksək ehtimallı seçim üçün kifayət qədər təsdiqlənmiş statistik məlumat yoxdur.';safeBox.append(p);}else sets.safe.forEach(x=>safeBox.append(renderPickCard(x,false)));}
+  if(valueBox){valueBox.replaceChildren();if(!sets.value.length){const p=document.createElement('p');p.className='notice';p.textContent='Bazar əmsalı və model üstünlüyü birlikdə təsdiqlənən riskli seçim tapılmadı.';valueBox.append(p);}else sets.value.forEach(x=>valueBox.append(renderPickCard(x,true)));}
+  return sets;
+}
+function updateKickoffOptions(matches){
+  const select=document.getElementById('kickoffFilter');if(!select)return;
+  const selected=select.value;const clocks=[...new Set(matches.map(kickoffClock).filter(x=>x!=='Vaxt yoxdur'))].sort();
+  select.replaceChildren();const all=document.createElement('option');all.value='';all.textContent='Bütün başlama saatları';select.append(all);
+  clocks.forEach(clock=>{const opt=document.createElement('option');opt.value=clock;opt.textContent=clock+' · Bakı';select.append(opt);});
+  if(clocks.includes(selected))select.value=selected;
+}
+function renderFixtureCard(match,analysis,feeds){
+  const card=document.createElement('article');card.className='fixture';
+  const left=document.createElement('div');left.className='fixture-main';
+  const league=document.createElement('div');league.className='meta';league.textContent=leagueLabel(match);
+  const teams=document.createElement('div');teams.className='teams';
+  const homeLogo=teamLogo(match,'home'),awayLogo=teamLogo(match,'away');
+  if(homeLogo||awayLogo){const visual=document.createElement('div');visual.className='team-visual';if(homeLogo)visual.append(homeLogo);const names=document.createElement('span');names.textContent=teamName(match,'home')+' — '+teamName(match,'away');visual.append(names);if(awayLogo)visual.append(awayLogo);teams.append(visual);}
+  else teams.textContent=teamName(match,'home')+' — '+teamName(match,'away');
+  const meta=document.createElement('div');meta.className='meta';meta.textContent=matchTime(match)+' · '+statusLabel(match);
+  left.append(league,teams,meta);
+  const score=document.createElement('strong');score.className='score';const sc=match.score||match.result||{};
+  const hs=first(sc.home,sc.home_score,match.home_score),as=first(sc.away,sc.away_score,match.away_score),state=classifyStatus(match);
+  score.textContent=(state==='live'||state==='finished')&&hs!==undefined&&as!==undefined?hs+' : '+as:'VS';
+  card.append(left,score);
+  const detail=document.createElement('div');detail.className='match-analysis';
+  if(analysis){
+    const line=document.createElement('div');line.textContent='SAKHAVAT MODEL · 1 '+percent(analysis.outcomes.home)+' · X '+percent(analysis.outcomes.draw)+' · 2 '+percent(analysis.outcomes.away);
+    const market=document.createElement('div');market.textContent=analysis.market?'BAZAR (marjasız) · 1 '+percent(analysis.market.home)+' · X '+percent(analysis.market.draw)+' · 2 '+percent(analysis.market.away):'BAZAR · əmsal məlumatı yoxdur';
+    const scores=document.createElement('div');scores.textContent='Ən ehtimallı hesablar: '+analysis.scores.map(x=>x.score).join(' · ')+' | xG '+analysis.hx.toFixed(2)+' - '+analysis.ax.toFixed(2);
+    const verdict=document.createElement('div');verdict.className='verdict';verdict.textContent=finalVerdict(match,analysis,feeds).text;
+    detail.append(line,market,scores,verdict);
+  }else{const note=document.createElement('div');note.textContent='SAKHAVAT MODEL: matçöncəsi xG məlumatı yoxdur; proqnoz hesablanmadı.';detail.append(note);}
+  card.append(detail);return card;
 }
 async function loadFixtures() {
   renderEmpty('Oyunlar yüklənir...', 'Məlumat provayderdən alınır.');
@@ -636,75 +740,26 @@ async function loadFixtures() {
     // Save the original pre-match forecast only after invalid repeated provider probabilities are suppressed.
     enrichedGames.forEach(match => recordPredictionHistory(match, matchAnalysis(match), globalPicks));
     renderPredictionHistory();
-    matchesBox.className = 'fixture-list'; matchesBox.replaceChildren();
-    enrichedGames.forEach(match => {
-      const card = document.createElement('article'); card.className = 'fixture';
-      const left = document.createElement('div'); left.className = 'fixture-main';
-      const leagueName = document.createElement('div'); leagueName.className = 'meta';
-      leagueName.textContent = first(match.league?.name, match.league_name, match.competition?.name, 'Liqa');
-      const teams = document.createElement('div'); teams.className = 'teams';
-      const homeLogo = teamLogo(match, 'home'), awayLogo = teamLogo(match, 'away');
-      if (homeLogo || awayLogo) {
-        const visual = document.createElement('div'); visual.className = 'team-visual';
-        if (homeLogo) visual.append(homeLogo);
-        const names = document.createElement('span');
-        names.textContent = teamName(match, 'home') + '  —  ' + teamName(match, 'away');
-        visual.append(names);
-        if (awayLogo) visual.append(awayLogo);
-        teams.append(visual);
-      } else {
-        teams.textContent = teamName(match, 'home') + '  —  ' + teamName(match, 'away');
-      }
-      const meta = document.createElement('div'); meta.className = 'meta';
-      meta.textContent = matchTime(match) + ' · ' + statusLabel(match);
-      left.append(leagueName, teams, meta);
-      const score = document.createElement('strong'); score.className = 'score';
-      const sc = match.score || match.result || {};
-      const homeScore = first(sc.home, sc.home_score, match.home_score);
-      const awayScore = first(sc.away, sc.away_score, match.away_score);
-      const state = classifyStatus(match);
-      score.textContent = (state === 'live' || state === 'finished') &&
-        homeScore !== undefined && awayScore !== undefined
-        ? homeScore + ' : ' + awayScore : 'VS';
-      card.append(left, score);
-      const analysis = matchAnalysis(match);
-      if (analysis) {
-        const detail = document.createElement('div'); detail.className = 'match-analysis';
-        const modelLine = document.createElement('div'); modelLine.textContent =
-          'SAKHAVAT MODEL (xG · Poisson/DC): 1 ' + percent(analysis.outcomes.home) +
-          ' · X ' + percent(analysis.outcomes.draw) + ' · 2 ' + percent(analysis.outcomes.away);
-        const marketLine = document.createElement('div'); marketLine.textContent = analysis.market
-          ? 'BAZAR (marjasız): 1 ' + percent(analysis.market.home) + ' · X ' + percent(analysis.market.draw) + ' · 2 ' + percent(analysis.market.away)
-          : 'BAZAR: əmsal məlumatı yoxdur';
-        const providerLine = document.createElement('div'); providerLine.textContent =
-          match._providerProbabilityRepeated
-            ? 'PROVIDER EHTİMALI: eyni 1X2 göstəricisi başqa oyunlarda da təkrarlandığı üçün etibarlı mənbə kimi göstərilmir'
-            : 'PROVIDER EHTİMALI: 1 ' + percent(analysis.provider.home_win) +
-              ' · X ' + percent(analysis.provider.draw) + ' · 2 ' + percent(analysis.provider.away_win);
-        const verdict = document.createElement('div'); verdict.className = 'verdict';
-        verdict.textContent = finalVerdict(match, analysis, globalPicks).text;
-        const scoresLine = document.createElement('div'); scoresLine.textContent =
-          'Ən ehtimallı hesablar: ' + analysis.scores.map(x => x.score).join(' · ') +
-          ' | xG: ' + analysis.hx.toFixed(2) + ' - ' + analysis.ax.toFixed(2);
-        const statsLine = document.createElement('div'); statsLine.className = 'meta';
-        const hs = match._teamStats?.home, as = match._teamStats?.away;
-        statsLine.textContent = hs && as
-          ? 'TEAM xG (eyni liqa/sezon): ' + hs.xgFor.toFixed(2) + '/' + hs.xgAgainst.toFixed(2) +
-            ' · ' + as.xgFor.toFixed(2) + '/' + as.xgAgainst.toFixed(2) +
-            ' | forma: ' + (hs.form || '—') + ' / ' + (as.form || '—')
-          : 'TEAM xG: kifayət qədər təsdiqlənmiş komanda statistikası tapılmadı';
-        const consensus = document.createElement('div'); consensus.className = 'meta';
-        consensus.textContent = globalConsensusText(match, analysis, globalPicks);
-        detail.append(modelLine, marketLine, providerLine, verdict, scoresLine, statsLine, consensus);
-        card.append(detail);
-      } else {
-        const note = document.createElement('div'); note.className = 'match-analysis meta';
-        note.textContent = 'SAKHAVAT MODEL: matçöncəsi xG məlumatı yoxdur; proqnoz hesablanmadı.';
-        const consensus = document.createElement('div'); consensus.className = 'meta';
-        consensus.textContent = globalConsensusText(match, { provider: match.probabilities || {} }, globalPicks);
-        card.append(note, consensus);
-      }
-      matchesBox.append(card);
+    latestMatches=enrichedGames;
+    updateKickoffOptions(enrichedGames);
+    const pickSets=renderRecommendations(enrichedGames,globalPicks);
+    let visible=enrichedGames.slice();
+    const leagueNow=document.getElementById('leagueFilter')?.value;
+    if(leagueNow)visible=visible.filter(m=>String(m.league?.league_id)===String(leagueNow));
+    const timeNow=document.getElementById('kickoffFilter')?.value;
+    if(timeNow)visible=visible.filter(m=>kickoffClock(m)===timeNow);
+    if(currentPickFilter==='safe'){const ids=new Set(pickSets.safe.map(x=>String(x.match.match_id)));visible=visible.filter(m=>ids.has(String(m.match_id)));}
+    if(currentPickFilter==='value'){const ids=new Set(pickSets.value.map(x=>String(x.match.match_id)));visible=visible.filter(m=>ids.has(String(m.match_id)));}
+    const groupSame=document.getElementById('sameTimeToggle')?.checked!==false;
+    visible.sort((a,b)=>(Number(a.date_unix)||0)-(Number(b.date_unix)||0));
+    matchesBox.className='fixture-list';matchesBox.replaceChildren();
+    if(!visible.length){renderEmpty('Uyğun oyun tapılmadı','Bu filtrə uyğun oyun yoxdur. Tarixi, liqanı və ya başlama saatını dəyiş.');return;}
+    let lastClock='';
+    visible.forEach(match=>{
+      const clock=kickoffClock(match);
+      if(groupSame&&clock!==lastClock){const label=document.createElement('div');label.className='kickoff-group';label.textContent=clock+' · BAKI VAXTI';matchesBox.append(label);lastClock=clock;}
+      const analysis=matchAnalysis(match);
+      matchesBox.append(renderFixtureCard(match,analysis,globalPicks));
     });
   } catch (error) { console.error('Fixture loading failed:', error); renderEmpty('Məlumat yüklənmədi', error.name === 'TimeoutError' ? error.message : (error.message || 'Şəbəkə bağlantısı kəsildi.')); }
 }
@@ -720,6 +775,16 @@ document.querySelectorAll('.tab').forEach(button => button.addEventListener('cli
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === button));
   document.querySelectorAll('.panel').forEach(panel => panel.classList.toggle('active', panel.id === button.dataset.tab));
 }));
+document.querySelectorAll('.quick').forEach(button=>button.addEventListener('click',()=>{
+  document.querySelectorAll('.quick').forEach(x=>x.classList.toggle('active',x===button));
+  currentPickFilter=button.dataset.pickFilter||'all';loadFixtures();
+}));
+document.querySelectorAll('.league-tile').forEach(button=>button.addEventListener('click',()=>{
+  const filter=document.getElementById('leagueFilter');if(filter)filter.value=button.dataset.league;
+  document.querySelector('[data-tab="matches"]')?.click();loadFixtures();
+}));
+document.getElementById('kickoffFilter')?.addEventListener('change',loadFixtures);
+document.getElementById('sameTimeToggle')?.addEventListener('change',loadFixtures);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=7').catch(() => {}));
 checkConnection(); loadFixtures();
 setInterval(() => { if (document.visibilityState === 'visible') { checkConnection(); loadFixtures(); } }, 300000);
