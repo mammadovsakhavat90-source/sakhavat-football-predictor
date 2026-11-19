@@ -514,15 +514,24 @@ function renderEmpty(title, detail) {
   const p = document.createElement('p'); p.textContent = detail;
   matchesBox.append(icon, heading, p);
 }
-async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 75000) {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  let timer;
+  let timer, timedOut = false;
   try {
-    const request = fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
+    const request = fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) })
+      .catch(error => {
+        if (timedOut) {
+          const timeoutError = new Error('Server cavabı ' + Math.round(timeoutMs / 1000) + ' saniyə ərzində gəlmədi. Bir az sonra Yenilə düyməsini basın.');
+          timeoutError.name = 'TimeoutError';
+          throw timeoutError;
+        }
+        throw error;
+      });
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {
+        timedOut = true;
         if (controller) controller.abort();
-        const error = new Error('Sorğu ' + Math.round(timeoutMs / 1000) + ' saniyəyə cavab vermədi.');
+        const error = new Error('Server cavabı ' + Math.round(timeoutMs / 1000) + ' saniyə ərzində gəlmədi. Bir az sonra Yenilə düyməsini basın.');
         error.name = 'TimeoutError';
         reject(error);
       }, timeoutMs);
@@ -535,7 +544,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
 
 async function checkConnection() {
   try {
-    const r = await fetchWithTimeout(apiUrl('/api/status'), { cache: 'no-store' }, 10000); const d = await r.json();
+    const r = await fetchWithTimeout(apiUrl('/api/status'), { cache: 'no-store' }, 75000); const d = await r.json();
     connection.textContent = d.apiConfigured ? 'API aktivdir · ' + (d.provider || 'Provider') : 'API açarı yoxdur';
   } catch { connection.textContent = 'Bağlantı xətası'; }
 }
@@ -545,7 +554,7 @@ async function loadFixtures() {
     const params = new URLSearchParams({ date: dateInput.value });
     const league = document.getElementById('leagueFilter')?.value;
     if (league) params.set('league_id', league);
-    const response = await fetchWithTimeout(apiUrl('/api/fixtures?' + params.toString()), { cache: 'no-store' }, 18000);
+    const response = await fetchWithTimeout(apiUrl('/api/fixtures?' + params.toString()), { cache: 'no-store' }, 75000);
     const data = await response.json();
     if (!response.ok || data.ok === false) throw new Error(data.error || 'Məlumat alınmadı');
     const games = Array.isArray(data.matches) ? data.matches :
