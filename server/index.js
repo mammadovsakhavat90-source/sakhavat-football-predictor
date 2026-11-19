@@ -2,12 +2,13 @@ const express=require('express');
 const path=require('path');
 const {predict}=require('./prediction');
 const app=express(),PORT=process.env.PORT||3000,API_KEY=process.env.FOOTBALLDATA_API_KEY,API_BASE='https://footballdata.io/api/v1';
+const ALLOWED_LEAGUE_IDS=new Set(['10','15','45','46','50']);
 app.use((req,res,next)=>{res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');res.setHeader('Access-Control-Allow-Headers','Content-Type, Authorization, X-Requested-With');res.setHeader('Access-Control-Max-Age','86400');res.setHeader('Access-Control-Allow-Private-Network','true');res.setHeader('Vary','Origin');if(req.method==='OPTIONS')return res.sendStatus(204);next();});
 app.use(express.json({limit:'32kb'}));
 app.use(express.static(path.join(__dirname,'..','public')));
-async function footballData(endpoint,res){
+async function footballData(endpoint,res,requestedLeagueId){
  if(!API_KEY)return res.status(503).json({ok:false,error:'FOOTBALLDATA_API_KEY is not configured.'});
- try{const response=await fetch(`${API_BASE}${endpoint}`,{headers:{Authorization:`Bearer ${API_KEY}`,Accept:'application/json'},signal:AbortSignal.timeout(12000)});const data=await response.json();if(!response.ok)return res.status(response.status).json({ok:false,error:'Football data provider error',details:data});return res.json({ok:true,provider:'Footballdata.io',providerData:data,matches:data.data?.matches||(Array.isArray(data.data)?data.data:[])});}
+ try{const response=await fetch(`${API_BASE}${endpoint}`,{headers:{Authorization:`Bearer ${API_KEY}`,Accept:'application/json'},signal:AbortSignal.timeout(12000)});const data=await response.json();if(!response.ok)return res.status(response.status).json({ok:false,error:'Football data provider error',details:data});const rawMatches=data.data?.matches||(Array.isArray(data.data)?data.data:[]);const matches=rawMatches.filter(match=>{const id=String(match.league?.league_id??match.league_id??match.competition?.league_id??'');return ALLOWED_LEAGUE_IDS.has(id)&&(!requestedLeagueId||id===String(requestedLeagueId));});return res.json({ok:true,provider:'Footballdata.io',providerData:data,matches,meta:{allowedLeagueIds:[...ALLOWED_LEAGUE_IDS],providerMatches:rawMatches.length,filteredMatches:matches.length}});}
  catch(error){const timedOut=error.name==='TimeoutError'||error.name==='AbortError';return res.status(timedOut?504:502).json({ok:false,error:timedOut?'Football data provider timed out after 12 seconds.':'Could not reach Footballdata.io',details:error.message});}
 }
 
