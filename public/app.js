@@ -490,7 +490,14 @@ function importPredictionHistory(file) {
         ['1','X','2'].includes(row.best) && Number.isFinite(Date.parse(row.kickoff)));
       if (!valid.length && imported.length) throw new Error('Faylda bərpa edilə bilən proqnoz yoxdur.');
       const merged = new Map(readPredictionHistory().map(row => [row.id, row]));
-      valid.forEach(row => { if (!merged.has(row.id)) merged.set(row.id, row); });
+      valid.forEach(row => {
+        const existing = merged.get(row.id);
+        if (!existing) merged.set(row.id, row);
+        else if (!existing.result && row.result && ['1','X','2'].includes(row.result.outcome) &&
+          Number.isFinite(Number(row.result.home)) && Number.isFinite(Number(row.result.away))) {
+          merged.set(row.id, { ...existing, result: row.result, completedAt: row.completedAt || null });
+        }
+      });
       if (!writePredictionHistory([...merged.values()])) throw new Error('Brauzer yaddaşına yazmaq mümkün olmadı.');
       renderPredictionHistory();
       alert(valid.length + ' proqnoz yoxlanıldı. Yeni qeydlər əlavə edildi; mövcud ilkin qeydlər dəyişdirilmədi.');
