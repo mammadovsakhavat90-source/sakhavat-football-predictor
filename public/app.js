@@ -154,7 +154,8 @@ function globalConsensusPick(match, analysis, feeds) {
   const kiqiqPick = kp ? ['1', 'X', '2'][kp.indexOf(Math.max(...kp))] : null;
   const picks = [providerPick, kiqiqPick, external ? String(external.pick).toUpperCase() : null]
     .filter(pick => ['1', 'X', '2'].includes(pick));
-  if (!picks.length) return null;
+  // One external source is not a consensus; require at least two independent feeds.
+  if (picks.length < 2) return null;
   const counts = { '1': 0, X: 0, '2': 0 };
   picks.forEach(pick => counts[pick]++);
   const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
@@ -219,7 +220,7 @@ function normalize1x2(probabilities) {
     Number(winner.draw),
     Number(winner.away_win ?? winner.away)
   ];
-  if (!values.every(Number.isFinite) || values.some(v => v <= 0 || v > 100)) return null;
+  if (!values.every(Number.isFinite) || values.some(v => v < 0 || v > 100) || values.reduce((a,b)=>a+b,0) <= 0) return null;
   // Some feeds express probabilities as fractions (0-1), others as percentages.
   const initialSum = values.reduce((a,b) => a+b, 0);
   if (values.every(v => v <= 1) && initialSum >= .85 && initialSum <= 1.15) {
