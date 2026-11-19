@@ -33,9 +33,9 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 function cacheGet(key) {
   const entry = cache.get(key);
   if (!entry) return null;
-  if (entry.expiresAt > Date.now()) return { value: entry.value, stale: false };
+  if (entry.expiresAt > Date.now() && entry.value !== undefined) return { value: entry.value, stale: false };
   if (entry.promise) return { promise: entry.promise };
-  return entry.staleUntil > Date.now() ? { value: entry.value, stale: true } : null;
+  return null;
 }
 async function cachedJson(key, ttlMs, loader, staleMs = ttlMs * 4) {
   const existing = cacheGet(key);
