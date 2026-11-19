@@ -418,6 +418,18 @@ function renderPredictionHistory() {
   } else {
     metrics.forEach(el=>{el.textContent='—';});
   }
+  const audit=document.getElementById('systemAudit');
+  if(audit){
+    const scorePick=field=>{
+      const eligible=completed.filter(row=>['1','X','2'].includes(row[field]));
+      const hits=eligible.filter(row=>row[field]===row.result.outcome).length;
+      return eligible.length ? hits+'/'+eligible.length+' ('+(hits/eligible.length*100).toFixed(1)+'%)' : 'qeyd yoxdur';
+    };
+    audit.textContent='SAKHAVAT MODEL: '+scorePick('best')+
+      ' · GLOBAL CONSENSUS: '+scorePick('consensusPick')+
+      ' · FINAL VERDICT: '+scorePick('finalPick')+
+      ' | yalnız oyunöncəsi saxlanmış seçimlər';
+  }
   const list=document.getElementById('historyList');
   if(!list) return;
   list.replaceChildren();
