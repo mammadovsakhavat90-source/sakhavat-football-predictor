@@ -184,12 +184,11 @@ function finalVerdict(match, analysis, feeds) {
     return { confirmed: false, pick: null, text: 'FINAL VERDICT: SAKHAVAT modeli və müstəqil konsensus fərqlənir; yekun seçim verilmir' };
   }
   const marketKey = { '1':'home', 'X':'draw', '2':'away' }[modelPick];
-  if (analysis.market && Math.abs(analysis.outcomes[marketKey] - analysis.market[marketKey]) > 15) {
+  if (!analysis.market) return { confirmed: false, pick: null, text: 'FINAL VERDICT: müqayisə üçün etibarlı bazar əmsalı yoxdur; yekun seçim verilmir' };
+  if (Math.abs(analysis.outcomes[marketKey] - analysis.market[marketKey]) > 15) {
     return { confirmed: false, pick: null, text: 'FINAL VERDICT: model və bazar arasında 15 faiz bəndindən böyük fərq var; əlavə yoxlama tələb olunur' };
   }
-  const marketText = analysis.market
-    ? ' · bazar ehtimalı ' + percent(analysis.market[marketKey])
-    : ' · bazar əmsalı mövcud deyil';
+  const marketText = ' · bazar ehtimalı ' + percent(analysis.market[marketKey]);
   return { confirmed: true, pick: modelPick, text: 'FINAL VERDICT: TƏSDİQLƏNDİ · model və 2 müstəqil mənbə eyni seçimdədir: ' + modelPick + marketText };
 }
 function globalConsensusPick(match, analysis, feeds) {
@@ -604,9 +603,7 @@ function recommendationSets(matches,feeds) {
     const consensus=globalConsensusPick(match,a,feeds);
     const modelPick=a.best, p=a.outcomes[modelPick];
     const marketClose=a.market && Math.abs(a.outcomes[modelPick]-a.market[modelPick])<=9;
-    const providerClose=!a.providerMarketDuplicate && a.provider && Number.isFinite(Number(a.provider.home_win)) &&
-      Math.abs(a.outcomes[modelPick]-Number(a.provider[{home:'home_win',draw:'draw',away:'away_win'}[modelPick]]))<=12;
-    if(quality && p>=58 && consensus===a.labels[modelPick] && (!a.market || marketClose)){
+    if(quality && p>=58 && consensus===a.labels[modelPick] && !!a.market && marketClose){
       const item={match,analysis:a,pick:a.labels[modelPick],prob:p,quality,consensus};
       const lid=String(match.league?.league_id||match.league_name||'unknown');
       const old=perLeague.get(lid);
