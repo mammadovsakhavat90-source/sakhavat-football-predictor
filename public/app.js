@@ -145,65 +145,59 @@ async function fetchKiqiqPredictions(selectedDate) {
   const feeds = await fetchConsensusFeeds(selectedDate);
   return feeds.kiqiq;
 }
-function normalizeCompetitionLabel(value) {
-  return String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
-    .toLowerCase().replace(/\\b(uefa|fifa)\\b/g, '')
-    .replace(/[^a-z0-9]+/g, ' ').replace(/\\s+/g, ' ').trim();
-}
-function competitionLabelsMatch(match, externalCompetition) {
-  const local = normalizeCompetitionLabel(leagueLabel(match));
-  const external = normalizeCompetitionLabel(externalCompetition);
-  if (!local || !external) return false;
+function sourceCompetitionMatches(match, row, source) {
+  const id = String(match?.league?.league_id ?? match?.league_id ?? match?.competition?.league_id ?? '');
   const aliases = {
-    'la liga': 'laliga',
-    'laliga': 'laliga',
-    'premier league': 'premier league',
-    'champions league': 'champions league',
-    'uefa champions league': 'champions league',
-    'europa league': 'europa league',
-    'world cup': 'world cup',
-    'fifa world cup': 'world cup'
-  };
-  const compactLocal = local.replace(/\\s/g, '');
-  const compactExternal = external.replace(/\\s/g, '');
-  const a = aliases[local] || aliases[compactLocal] || local;
-  const b = aliases[external] || aliases[compactExternal] || external;
-  return a === b;
+    '10': ['laliga', 'spanishlaliga', 'primeradivision'],
+    '15': ['premierleague', 'englishpremierleague', 'epl'],
+    '45': ['championsleague', 'uefachampionsleague', 'ucl'],
+    '46': ['europaleague', 'uefaeuropaleague', 'uel'],
+    '50': ['worldcup', 'fifaworldcup', 'fifaworldcup2026']
+  }[id] || [];
+  const compact = value => String(value || '').normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+  const values = source === 'footballAnalytics'
+    ? [row?.league_slug, row?.league]
+    : [row?.competition, row?.league_name, row?.league];
+  return aliases.length > 0 && values.some(value => aliases.includes(compact(value)));
 }
 function findGlobalPick(match, rows) {
   const kickoff = Number(match.date_unix) * 1000;
-  if (!(kickoff > 0)) return null;
+  if (!(kickoff > Date.now())) return null;
   const home = teamName(match, 'home'), away = teamName(match, 'away');
   return rows.find(row => {
     const externalTime = Date.parse(row.kickoff_utc || '');
     const writtenAt = Date.parse(row.pick_written_utc || '');
     const sourceGeneratedAt = Date.parse(row._sourceGeneratedAt || '');
     const sourceIsFresh = Number.isFinite(sourceGeneratedAt) &&
-      Date.now() - sourceGeneratedAt <= 24 * 60 * 60 * 1000 &&
-      sourceGeneratedAt <= Date.now() + 5 * 60 * 1000;
+      sourceGeneratedAt <= Date.now() + 5 * 60 * 1000 &&
+      Date.now() - sourceGeneratedAt <= 6 * 60 * 60 * 1000;
     return sourceIsFresh && Number.isFinite(externalTime) &&
-      Math.abs(externalTime - kickoff) <= 2 * 60 * 60 * 1000 &&
-      Number.isFinite(writtenAt) && writtenAt < externalTime &&
-      externalTime - writtenAt <= 7 * 86400000 &&
+      Math.abs(externalTime - kickoff) <= 30 * 60 * 1000 &&
+      Number.isFinite(writtenAt) && writtenAt <= Date.now() + 5 * 60 * 1000 &&
+      writtenAt < externalTime && Date.now() - writtenAt <= 7 * 86400000 &&
       teamLabelsMatch(home, row.home_team) && teamLabelsMatch(away, row.away_team) &&
-      competitionLabelsMatch(match, row.league) && ['1', 'X', '2'].includes(String(row.pick).toUpperCase());
+      sourceCompetitionMatches(match, row, 'footballAnalytics') &&
+      ['1', 'X', '2'].includes(String(row.pick).toUpperCase());
   }) || null;
 }
 function findKiqiqPrediction(match, rows) {
   const kickoff = Number(match.date_unix) * 1000;
-  if (!(kickoff > 0)) return null;
+  if (!(kickoff > Date.now())) return null;
   const home = teamName(match, 'home'), away = teamName(match, 'away');
   return rows.find(row => {
     const externalTime = Date.parse(row.kickoff_iso || '');
-    const sourceGeneratedAt = Date.parse(row._sourceGeneratedAt || row.published_at || row.created_at || '');
+    const sourceGeneratedAt = Date.parse(row._sourceGeneratedAt || '');
     const sourceIsFresh = Number.isFinite(sourceGeneratedAt) &&
-      Date.now() - sourceGeneratedAt <= 24 * 60 * 60 * 1000 &&
       sourceGeneratedAt <= Date.now() + 5 * 60 * 1000 &&
+      Date.now() - sourceGeneratedAt <= 30 * 60 * 1000 &&
       sourceGeneratedAt < externalTime;
     return sourceIsFresh && Number.isFinite(externalTime) &&
-      Math.abs(externalTime - kickoff) <= 4 * 60 * 60 * 1000 &&
+      Math.abs(externalTime - kickoff) <= 30 * 60 * 1000 &&
       teamLabelsMatch(home, row.home) && teamLabelsMatch(away, row.away) &&
-      competitionLabelsMatch(match, row.competition);
+      sourceCompetitionMatches(match, row, 'kiqiq') &&
+      !!normalizeExternalProbabilities(row);
   }) || null;
 }
 function normalizeExternalProbabilities(row) {
@@ -389,7 +383,7 @@ function matchAnalysis(match) {
   let total = 0;
   for (let h = 0; h <= 8; h++) for (let a = 0; a <= 8; a++) {
     let p = poissonProbability(hx, h) * poissonProbability(ax, a);
-    const rho = -0.08;
+    const rho = 0; // Dixon-Coles is neutral until rho is fitted to verified historical results.
     if (h === 0 && a === 0) p *= 1 - hx * ax * rho;
     else if (h === 0 && a === 1) p *= 1 + hx * rho;
     else if (h === 1 && a === 0) p *= 1 + ax * rho;
@@ -767,7 +761,7 @@ function renderFixtureCard(match,analysis,feeds){
   card.append(left,score);
   const detail=document.createElement('div');detail.className='match-analysis';
   if(analysis){
-    const line=document.createElement('div');line.textContent='SAKHAVAT MODEL (xG · Poisson/DC): 1 '+percent(analysis.outcomes.home)+' · X '+percent(analysis.outcomes.draw)+' · 2 '+percent(analysis.outcomes.away);
+    const line=document.createElement('div');line.textContent='SAKHAVAT MODEL (xG · Poisson): 1 '+percent(analysis.outcomes.home)+' · X '+percent(analysis.outcomes.draw)+' · 2 '+percent(analysis.outcomes.away);
     const market=document.createElement('div');market.textContent=analysis.market?'BAZAR (marjasız) · 1 '+percent(analysis.market.home)+' · X '+percent(analysis.market.draw)+' · 2 '+percent(analysis.market.away):'BAZAR: əmsal məlumatı yoxdur';
     const provider=document.createElement('div');
     const pv=analysis.provider||{};
@@ -917,7 +911,7 @@ document.querySelectorAll('.league-tile').forEach(button=>button.addEventListene
 document.getElementById('kickoffFilter')?.addEventListener('change',loadFixtures);
 document.getElementById('leagueFilter')?.addEventListener('change',loadFixtures);
 document.getElementById('sameTimeToggle')?.addEventListener('change',loadFixtures);
-if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=8').catch(() => {}));
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v=9').catch(() => {}));
 checkConnection(); loadFixtures(); auditPendingResults();
 // Respect the provider's free request allowance: refresh scheduled fixtures hourly,
 // but refresh every two minutes while a match is live.
