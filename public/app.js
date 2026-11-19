@@ -680,7 +680,7 @@ async function loadFixtures() {
     if (!response.ok || data.ok === false) throw new Error(data.error || 'Məlumat alınmadı');
     const games = Array.isArray(data.matches) ? data.matches :
       Array.isArray(data.providerData?.data?.matches) ? data.providerData.data.matches : [];
-    if (!games.length) { renderEmpty('Bu tarixdə oyun tapılmadı', 'Provayder bu tarix və seçilmiş liqa üçün oyun qaytarmadı.'); return; }
+    if (!games.length) { document.getElementById('safePicks')?.replaceChildren(); document.getElementById('valuePicks')?.replaceChildren(); renderEmpty('Bu tarixdə oyun tapılmadı', 'Provayder bu tarix və seçilmiş liqa üçün oyun qaytarmadı.'); return; }
     // Fetch same-competition, same-season team xG; cache each team for this page session.
     const globalPicksPromiseForDate = Promise.all([fetchGlobalPicks(), fetchKiqiqPredictions(dateInput.value)])
       .then(([footballAnalytics, kiqiq]) => ({ footballAnalytics, kiqiq }));
