@@ -164,60 +164,38 @@ function normalizeExternalProbabilities(row) {
   return values.map(v => v / sum * 100);
 }
 function globalConsensusPick(match, analysis, feeds) {
+  // Footballdata.io is the fixture/statistics provider, not an independent consensus source.
+  // Consensus uses only separate external prediction services.
   const external = findGlobalPick(match, feeds?.footballAnalytics || []);
   const kiqiq = findKiqiqPrediction(match, feeds?.kiqiq || []);
-  const provider = analysis.provider || {};
-  const values = [Number(provider.home_win), Number(provider.draw), Number(provider.away_win)];
-  const providerPick = values.every(Number.isFinite) && values.every(v => v >= 0) && values.some(v => v > 0)
-    ? ['1', 'X', '2'][values.indexOf(Math.max(...values))] : null;
   const kp = normalizeExternalProbabilities(kiqiq);
   const kiqiqPick = kp ? ['1', 'X', '2'][kp.indexOf(Math.max(...kp))] : null;
-  const picks = [providerPick, kiqiqPick, external ? String(external.pick).toUpperCase() : null]
-    .filter(pick => ['1', 'X', '2'].includes(pick));
-  // One external source is not a consensus; require at least two independent feeds.
+  const externalPick = external ? String(external.pick).toUpperCase() : null;
+  const picks = [kiqiqPick, externalPick].filter(pick => ['1', 'X', '2'].includes(pick));
   if (picks.length < 2) return null;
   const counts = { '1': 0, X: 0, '2': 0 };
   picks.forEach(pick => counts[pick]++);
   const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  if (ranked.length > 1 && ranked[0][1] === ranked[1][1]) return null;
+  if (ranked[0][1] === ranked[1][1]) return null;
   return ranked[0][0];
-}
-function finalVerdict(match, analysis, feeds) {
-  const modelPick = ['home', 'draw', 'away'].reduce((best, key) =>
-    analysis.outcomes[key] > analysis.outcomes[best] ? key : best, 'home');
-  const model = { home: '1', draw: 'X', away: '2' }[modelPick];
-  const consensus = globalConsensusPick(match, analysis, feeds);
-  if (!consensus) return { pick: null, text: 'FINAL VERDICT: etibarlı ortaq seçim yoxdur; yekun seçim verilmir' };
-  if (model === consensus) return { pick: model, text: 'FINAL VERDICT: SAKHAVAT MODEL və GLOBAL CONSENSUS razıdır · ' + model };
-  return { pick: null, text: 'FINAL VERDICT: fikir ayrılığı var · MODEL ' + model + ' / CONSENSUS ' + consensus + ' · yekun seçim verilmir' };
 }
 function globalConsensusText(match, analysis, feeds) {
   const external = findGlobalPick(match, feeds?.footballAnalytics || []);
   const kiqiq = findKiqiqPrediction(match, feeds?.kiqiq || []);
-  const provider = analysis.provider || {};
-  const values = [Number(provider.home_win), Number(provider.draw), Number(provider.away_win)];
-  const providerAvailable = values.every(Number.isFinite) && values.every(v => v >= 0) &&
-    values.some(v => v > 0);
-  const providerPick = providerAvailable
-    ? ['1', 'X', '2'][values.indexOf(Math.max(...values))] : null;
   const kp = normalizeExternalProbabilities(kiqiq);
   const kiqiqPick = kp ? ['1', 'X', '2'][kp.indexOf(Math.max(...kp))] : null;
+  const externalPick = external ? String(external.pick).toUpperCase() : null;
   const sources = [];
-  if (providerPick) sources.push({ name: 'Footballdata.io', pick: providerPick });
   if (kiqiqPick) sources.push({ name: 'KiqIQ', pick: kiqiqPick });
-  if (external) sources.push({ name: 'Football Analytics', pick: String(external.pick).toUpperCase() });
-  if (!sources.length) return 'GLOBAL CONSENSUS: uyğun müstəqil proqnoz tapılmadı; mənbə əhatəsi məhduddur';
+  if (['1', 'X', '2'].includes(externalPick)) sources.push({ name: 'Football Analytics', pick: externalPick });
+  if (!sources.length) return 'GLOBAL CONSENSUS: müstəqil proqnoz mənbəsi tapılmadı; konsensus hesablanmır';
+  const names = sources.map(source => source.name + ': ' + source.pick).join(' · ');
+  if (sources.length < 2) return 'GLOBAL CONSENSUS: yalnız 1 müstəqil mənbə mövcuddur · ' + names;
   const counts = { '1': 0, X: 0, '2': 0 };
   sources.forEach(source => { counts[source.pick]++; });
   const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const top = ranked[0];
-  const names = sources.map(source => source.name + ': ' + source.pick).join(' · ');
-  if (sources.length === 1) return 'GLOBAL CONSENSUS: yalnız 1 mənbə mövcuddur · ' + names;
-  if (ranked[1] && ranked[0][1] === ranked[1][1]) return 'GLOBAL CONSENSUS: mənbələr arasında bərabərlik var; ortaq seçim yoxdur | ' + names;
-  const agreement = top[1] === sources.length
-    ? sources.length + '/' + sources.length + ' mənbə eyni istiqamətdədir · ' + top[0]
-    : top[1] + '/' + sources.length + ' mənbənin ortaq istiqaməti · ' + top[0];
-  return 'GLOBAL CONSENSUS: ' + agreement + ' | ' + names;
+  if (ranked[0][1] === ranked[1][1]) return 'GLOBAL CONSENSUS: iki müstəqil mənbə razılaşmır; yekun seçim yoxdur | ' + names;
+  return 'GLOBAL CONSENSUS: 2/2 müstəqil mənbə eyni istiqamətdədir · ' + ranked[0][0] + ' | ' + names;
 }
 const teamStatsCache = new Map();
 const matchOddsCache = new Map();
