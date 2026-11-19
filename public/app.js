@@ -498,34 +498,39 @@ async function auditPendingResults() {
     const rows = readPredictionHistory();
     const due = rows.filter(row => !row.result &&
       Number.isFinite(Date.parse(row.kickoff)) &&
-      Date.parse(row.kickoff) < Date.now() - 90 * 60 * 1000).slice(0, 3);
+      Date.parse(row.kickoff) < Date.now() - 90 * 60 * 1000);
+    if (!due.length) return;
+    const from = new Date(Math.min(...due.map(row => Date.parse(row.kickoff)))).toISOString().slice(0, 10);
+    const to = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Baku', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).format(new Date());
+    const response = await fetchWithTimeout(apiUrl('/api/results?' + new URLSearchParams({ from, to })),
+      { cache: 'no-store' }, 25000);
+    if (!response.ok) throw new Error('Nəticə auditi üçün server cavab vermədi');
+    const payload = await response.json();
+    const matches = Array.isArray(payload.matches) ? payload.matches : [];
+    const byId = new Map(matches.map(match => [String(first(match.match_id, match.fixture_id, '')), match]));
     let changed = false;
-    for (const saved of due) {
-      try {
-        const response = await fetchWithTimeout(apiUrl('/api/matches/' + encodeURIComponent(saved.id)),
-          { cache: 'no-store' }, 15000);
-        if (!response.ok) continue;
-        const payload = await response.json();
-        const candidate = payload?.data?.match || payload?.providerData?.data?.match ||
-          payload?.providerData?.match || payload?.data || payload?.providerData;
-        if (!candidate || typeof candidate !== 'object') continue;
-        const returnedId = first(candidate.match_id, candidate.fixture_id);
-        if (returnedId != null && String(returnedId) !== saved.id) continue;
-        if (classifyStatus(candidate) !== 'finished') continue;
-        const result = scoreFromMatch(candidate);
-        if (!result) continue;
-        const current = readPredictionHistory();
-        const index = current.findIndex(row => row.id === saved.id);
-        if (index < 0 || current[index].result) continue;
-        current[index].result = result;
-        current[index].completedAt = new Date().toISOString();
-        writePredictionHistory(current);
-        changed = true;
-      } catch (error) {
-        console.warn('Automatic result audit deferred for match ' + saved.id, error);
-      }
+    const current = readPredictionHistory();
+    current.forEach(row => {
+      if (row.result) return;
+      const match = byId.get(row.id);
+      if (!match || classifyStatus(match) !== 'finished') return;
+      const result = scoreFromMatch(match);
+      if (!result) return;
+      row.result = result;
+      row.completedAt = new Date().toISOString();
+      changed = true;
+    });
+    if (changed) {
+      writePredictionHistory(current);
+      renderPredictionHistory();
     }
-    if (changed) renderPredictionHistory();
+    if (payload.meta?.truncated) {
+      console.warn('Result audit returned the first 300 results only; remaining history will be checked on a later run.');
+    }
+  } catch (error) {
+    console.warn('Automatic result audit deferred:', error);
   } finally {
     auditInProgress = false;
   }
@@ -583,7 +588,7 @@ function renderPredictionHistory() {
     item.append(title,date,forecast,result); list.append(item);
   });
   const note=document.getElementById('historyNote');
-  if(note) note.textContent='Tarixçə bu brauzerdə saxlanılır ('+rows.length+' oyun). Tətbiq açıq olanda başa çatmış oyunların nəticələri saatda maksimum 3 matç üzrə avtomatik yoxlanılır. Bu telefon/brauzer yaddaşıdır; brauzer məlumatları silinsə tarixçə də silinə bilər.';
+  if(note) note.textContent='Tarixçə bu brauzerdə saxlanılır ('+rows.length+' oyun). Tətbiq açıq olanda başa çatmış oyunların nəticələri saatda bir dəfə toplu sorğu ilə avtomatik yoxlanılır. Bu telefon/brauzer yaddaşıdır; brauzer məlumatları silinsə tarixçə də silinə bilər.';
 }
 
 function exportPredictionHistory() {
