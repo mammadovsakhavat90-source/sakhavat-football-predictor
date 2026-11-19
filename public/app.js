@@ -360,8 +360,10 @@ function writePredictionHistory(rows) {
 }
 function scoreFromMatch(match) {
   const score = match.score || match.result || {};
-  const home = Number(first(score.home, score.home_score, match.home_score));
-  const away = Number(first(score.away, score.away_score, match.away_score));
+  const rawHome = first(score.home, score.home_score, match.home_score);
+  const rawAway = first(score.away, score.away_score, match.away_score);
+  if (rawHome === undefined || rawAway === undefined) return null;
+  const home = Number(rawHome), away = Number(rawAway);
   if (!Number.isFinite(home) || !Number.isFinite(away)) return null;
   return { home, away, outcome: home > away ? '1' : home < away ? '2' : 'X',
     exact: home + '-' + away };
@@ -539,8 +541,6 @@ async function loadFixtures() {
       });
     }
     const globalPicks = await globalPicksPromiseForDate;
-    enrichedGames.forEach(match => recordPredictionHistory(match, matchAnalysis(match), globalPicks));
-    renderPredictionHistory();
     // Repeated identical provider 1X2 triples across separate fixtures can indicate
     // a fallback/default response. Suppress them rather than presenting false precision.
     const probabilityCounts = new Map();
@@ -556,6 +556,9 @@ async function loadFixtures() {
       const key = [p.home_win, p.draw, p.away_win].map(v => v.toFixed(1)).join('/');
       game._providerProbabilityRepeated = probabilityCounts.get(key) > 1;
     });
+    // Save the original pre-match forecast only after invalid repeated provider probabilities are suppressed.
+    enrichedGames.forEach(match => recordPredictionHistory(match, matchAnalysis(match), globalPicks));
+    renderPredictionHistory();
     matchesBox.className = 'fixture-list'; matchesBox.replaceChildren();
     enrichedGames.forEach(match => {
       const card = document.createElement('article'); card.className = 'fixture';
