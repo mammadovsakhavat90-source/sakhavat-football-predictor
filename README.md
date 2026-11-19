@@ -33,6 +33,7 @@ The backend rejects other competition IDs and filters fixture responses to this 
 - `/api/matches/:id/odds`
 - `/api/matches/:id/probabilities`
 - `/api/consensus?date=YYYY-MM-DD`
+- `/api/results?from=YYYY-MM-DD&to=YYYY-MM-DD`
 - `POST /api/predict` for supplied, verified statistics
 
 ## Current model and evidence rules
@@ -57,7 +58,7 @@ The backend rejects other competition IDs and filters fixture responses to this 
 ## Forecast history and audit limitations
 
 - The browser stores the first available pre-kickoff forecast in localStorage and does not overwrite it with later forecasts.
-- When a completed result is loaded for a fixture, the browser can score the saved forecast and calculate 1-X-2 hit rate, exact-score hit rate, Brier score and log loss.
+- While the app is open, it checks saved, due fixtures once per hour through the cached bulk results endpoint, then scores verified completed results and calculates 1-X-2 hit rate, exact-score hit rate, Brier score and log loss. It does not run unattended while the app is closed.
 - History is local to the browser/device. There is no central database, cross-device sync or guaranteed unattended background audit yet. Export the JSON backup periodically.
 - Push notifications are not configured.
 - The Android workflow builds a debug APK for testing. It is not a Play Store-signed production release.
