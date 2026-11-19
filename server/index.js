@@ -2,7 +2,7 @@ const express=require('express');
 const path=require('path');
 const {predict}=require('./prediction');
 const app=express(),PORT=process.env.PORT||3000,API_KEY=process.env.FOOTBALLDATA_API_KEY,API_BASE='https://footballdata.io/api/v1';
-app.use((req,res,next)=>{const origin=req.headers.origin;const allowed=['https://localhost','capacitor://localhost','https://sakhavat-football-predictor.onrender.com'];if(origin&&allowed.includes(origin))res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');res.setHeader('Access-Control-Allow-Headers','Content-Type');if(req.method==='OPTIONS')return res.sendStatus(204);next();});
+app.use((req,res,next)=>{res.setHeader('Access-Control-Allow-Origin','*');res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');res.setHeader('Access-Control-Allow-Headers','Content-Type');if(req.method==='OPTIONS')return res.sendStatus(204);next();});
 app.use(express.json({limit:'32kb'}));
 app.use(express.static(path.join(__dirname,'..','public')));
 async function footballData(endpoint,res){
