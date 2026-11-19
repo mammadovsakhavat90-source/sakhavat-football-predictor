@@ -33,3 +33,12 @@ Use the repository root as the service root, build command `npm install`, and st
 - Android debug APK build is automated through GitHub Actions (`Android APK` workflow). Each push affecting the app triggers a build; the APK is published as a 30-day workflow artifact. This is an installable test APK, not a Play Store-signed release.
 - The Capacitor Android shell routes API requests to the hosted Render backend; the backend allows requests from the native app origin.
 - Push notifications are not implemented yet. A production push service and signing configuration are still required for a store-ready Android release.
+
+
+## Forecast audit
+
+- Pre-match forecasts are saved in the current browser's local storage and are never overwritten by later model runs.
+- 1-X-2, double-chance, exact-score, Brier score and log-loss results are calculated only from saved pre-match records with a verified final score.
+- GLOBAL CONSENSUS and FINAL VERDICT are scored separately. A missing consensus or a disagreement does not create a final pick.
+- Use the History panel's JSON export/import controls to back up or restore browser history. This is a local browser archive, not yet a central cloud database; browser data should be exported periodically.
+- Elo is not automatically applied until a verified ratings source is connected. The model can use Elo values only when supplied as validated inputs.
