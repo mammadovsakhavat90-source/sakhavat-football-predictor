@@ -50,7 +50,7 @@ function matchTime(match) {
   if (Number.isFinite(unix) && unix > 0) d = new Date(unix * 1000);
   else if (raw) {
     const value = String(raw);
-    d = new Date(/^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}/.test(value)
+    d = new Date(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value)
       ? value.replace(' ', 'T') + 'Z' : value);
   }
   if (!d || Number.isNaN(d.getTime())) return String(raw || 'Vaxt göstərilməyib');
