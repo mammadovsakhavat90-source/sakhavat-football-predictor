@@ -431,7 +431,7 @@ function recordPredictionHistory(match, analysis, feeds) {
   const best = Object.entries(probabilities).sort((a,b) => b[1]-a[1])[0][0];
   const row = {
     id, home: teamName(match,'home'), away: teamName(match,'away'),
-    kickoff: new Date(kickoff).toISOString(), league: first(match.league?.name,match.league_name,'Liqa'),
+    kickoff: new Date(kickoff).toISOString(), league: leagueLabel(match),
     probabilities, best, doubleChance: doubleChanceSelection(probabilities), exactScore: analysis.scores?.[0]?.score || null,
     xg: [analysis.hx,analysis.ax], consensus: globalConsensusText(match,analysis,feeds),
     consensusPick: globalConsensusPick(match,analysis,feeds),
@@ -769,7 +769,7 @@ async function loadFixtures() {
     const pickSets=renderRecommendations(enrichedGames,globalPicks);
     let visible=enrichedGames.slice();
     const leagueNow=document.getElementById('leagueFilter')?.value;
-    if(leagueNow)visible=visible.filter(m=>String(m.league?.league_id)===String(leagueNow));
+    if(leagueNow)visible=visible.filter(m=>String(m.league?.league_id??m.league_id??m.competition?.league_id)===String(leagueNow));
     const timeNow=document.getElementById('kickoffFilter')?.value;
     if(timeNow)visible=visible.filter(m=>kickoffClock(m)===timeNow);
     if(currentPickFilter==='safe'){const ids=new Set(pickSets.safe.map(x=>String(x.match.match_id)));visible=visible.filter(m=>ids.has(String(m.match_id)));}
