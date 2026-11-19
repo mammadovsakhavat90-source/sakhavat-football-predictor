@@ -1,44 +1,68 @@
 # SAKHAVAT FOOTBALL PREDICTOR 1.0
 
-Football fixtures and pre-match analysis dashboard backed by Footballdata.io.
+Azerbaijani football analytics PWA and Android wrapper. The application uses Footballdata.io for fixtures and available team/match statistics. It does not guarantee outcomes and suppresses final recommendations when required evidence is missing.
 
 ## Run locally
-1. Install Node.js 18 or newer.
+
+1. Install Node.js 20 or newer.
 2. Run `npm install`.
-3. Set `FOOTBALLDATA_API_KEY` in your environment. Never commit the real key.
+3. Set `FOOTBALLDATA_API_KEY` in the environment. Never commit the real key.
 4. Run `npm start`.
 
-## Render deployment
-Use the repository root as the service root, build command `npm install`, and start command `npm start`. Add `FOOTBALLDATA_API_KEY` in the Render environment settings.
+## Render
+
+Use the repository root as the service root, build command `npm install`, and start command `npm start`. Configure `FOOTBALLDATA_API_KEY` in Render environment settings.
+
+## Supported competitions (fixed allowlist)
+
+- La Liga (10)
+- Premier League (15)
+- UEFA Champions League (45)
+- UEFA Europa League (46)
+- FIFA World Cup (50)
+
+The backend rejects other competition IDs and filters fixture responses to this allowlist.
 
 ## API
+
 - `/api/status`
 - `/api/fixtures?date=YYYY-MM-DD`
-- Optional league filter: `/api/fixtures?date=YYYY-MM-DD&league_id=15`
+- `/api/fixtures?date=YYYY-MM-DD&league_id=15`
 - `/api/teams/:id/stats?season_id=&league_id=`
-- `/api/matches/:match_id`
-- `/api/matches/:match_id/odds`
-- `/api/matches/:match_id/probabilities`
-- `POST /api/predict` for supplied, verified team and league statistics
+- `/api/matches/:id`
+- `/api/matches/:id/odds`
+- `/api/matches/:id/probabilities`
+- `/api/consensus?date=YYYY-MM-DD`
+- `POST /api/predict` for supplied, verified statistics
 
-## Current implementation
-- Live fixture list, league/date filtering, Baku-time display, five-minute refresh, and PWA manifest.
-- Fixture-card SAKHAVAT MODEL: available prematch xG blended with same-league/season team xG, then Poisson + Dixon-Coles 1-X-2 and scoreline probabilities.
-- Elo calculation is available in the separate prediction API when verified Elo inputs are supplied; Elo ratings are not yet automatically connected to fixture-card predictions.
-- GLOBAL CONSENSUS checks three independent data feeds when the same fixture can be matched reliably: Footballdata.io provider probabilities, KiqIQ public model probabilities, and Football Analytics public pre-match picks. Missing sources are not invented. KiqIQ endpoint documentation: https://kiqiq.com/api. Football Analytics data and attribution: https://footballanalytics.pro/data (CC BY 4.0).
-- GLOBAL CONSENSUS takes a strict majority across the available independent provider/model picks (Footballdata.io, KiqIQ, Football Analytics); ties or missing sources do not produce a consensus pick.
-- FINAL VERDICT compares the SAKHAVAT MODEL pick with GLOBAL CONSENSUS: agreement is confirmed as the final pick; disagreement or missing consensus is explicitly left without a final pick. Bookmaker odds after removing the overround remain a separate market comparison.
-- Odds, xG, provider probabilities, and external predictions depend on competition coverage and provider availability. No missing values are fabricated.
-- Prediction audit/history: the browser records the first available pre-kickoff model forecast for each fixture, then evaluates it when a completed score is loaded. It calculates 1-X-2 hit rate, exact-score hit rate, multiclass Brier score, and log loss. This first version stores history in the current browser's localStorage only; it is not a shared server database and can be lost if browser site data is cleared.
-- Android debug APK build is automated through GitHub Actions (`Android APK` workflow). Each push affecting the app triggers a build; the APK is published as a 30-day workflow artifact. This is an installable test APK, not a Play Store-signed release.
-- The Capacitor Android shell routes API requests to the hosted Render backend; the backend allows requests from the native app origin.
-- Push notifications are not implemented yet. A production push service and signing configuration are still required for a store-ready Android release.
+## Current model and evidence rules
 
+- Fixture-card forecasts use available pre-match xG, same-competition/season team xG where available, Poisson score probabilities, and a Dixon-Coles low-score adjustment.
+- The Dixon-Coles rho used by the fixture-card implementation is a fixed heuristic, not a parameter fitted from a verified historical dataset. Forecast probabilities are not yet empirically calibrated; treat them as model estimates, not measured guarantees.
+- Elo is disabled for automatic fixture forecasts until a verified ratings feed is connected.
+- Team form is displayed as context; it is not currently a separately weighted model input.
+- Injuries, suspensions, expected lineups and verified squad news are not integrated.
+- The high-confidence shortlist requires both team-stat records, model probability threshold, matching external-source consensus and bookmaker market confirmation. It is intentionally possible for the shortlist to be empty.
+- Riskier/high-odds candidates are separated from the high-confidence shortlist and are not described as safe picks.
+- Footballdata.io supplies fixtures/statistics/odds and is never counted as a consensus vote.
+- External consensus uses KiqIQ and Football Analytics only when both feeds return valid, fresh data and the same fixture can be matched by team names and kickoff. KiqIQ must provide a fresh feed-level generated/published timestamp; missing or stale timestamps suppress consensus. This is a two-source agreement check, not proof that the providers' underlying methodologies are statistically independent.
 
-## Forecast audit
+## Caching and PWA
 
-- Pre-match forecasts are saved in the current browser's local storage and are never overwritten by later model runs.
-- 1-X-2, double-chance, exact-score, Brier score and log-loss results are calculated only from saved pre-match records with a verified final score.
-- GLOBAL CONSENSUS and FINAL VERDICT are scored separately. A missing consensus or a disagreement does not create a final pick.
-- Use the History panel's JSON export/import controls to back up or restore browser history. This is a local browser archive, not yet a central cloud database; browser data should be exported periodically.
-- Elo is not automatically applied until a verified ratings source is connected. The model can use Elo values only when supplied as validated inputs.
+- The backend caches fixtures, team statistics, match details, odds and external feeds in process memory. Team statistics use a longer cache window; odds and live fixture data use shorter windows. Expired cached data may be used only as a fallback when an upstream request fails.
+- Cache contents are instance-local and are cleared when the Render process restarts. A persistent shared cache/database is not configured.
+- The service worker caches only the static app shell for offline opening. API responses and match data are never cached for offline use.
+- Scheduled fixture refresh is slower than live-match refresh to reduce free-plan API usage.
+
+## Forecast history and audit limitations
+
+- The browser stores the first available pre-kickoff forecast in localStorage and does not overwrite it with later forecasts.
+- When a completed result is loaded for a fixture, the browser can score the saved forecast and calculate 1-X-2 hit rate, exact-score hit rate, Brier score and log loss.
+- History is local to the browser/device. There is no central database, cross-device sync or guaranteed unattended background audit yet. Export the JSON backup periodically.
+- Push notifications are not configured.
+- The Android workflow builds a debug APK for testing. It is not a Play Store-signed production release.
+- The Capacitor shell loads the hosted Render website, so the Android app requires internet access for live data and a healthy Render service.
+
+## Android build
+
+GitHub Actions runs the `Android APK` workflow on relevant pushes. The generated artifact is a debug APK retained for 30 days. A signed release requires a private signing key and release configuration; do not store signing secrets in source control.
