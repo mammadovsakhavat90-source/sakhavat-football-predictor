@@ -143,6 +143,33 @@ function normalizeExternalProbabilities(row) {
   if (sum < 85 || sum > 115) return null;
   return values.map(v => v / sum * 100);
 }
+function globalConsensusPick(match, analysis, feeds) {
+  const external = findGlobalPick(match, feeds?.footballAnalytics || []);
+  const kiqiq = findKiqiqPrediction(match, feeds?.kiqiq || []);
+  const provider = analysis.provider || {};
+  const values = [Number(provider.home_win), Number(provider.draw), Number(provider.away_win)];
+  const providerPick = values.every(Number.isFinite) && values.every(v => v >= 0) && values.some(v => v > 0)
+    ? ['1', 'X', '2'][values.indexOf(Math.max(...values))] : null;
+  const kp = normalizeExternalProbabilities(kiqiq);
+  const kiqiqPick = kp ? ['1', 'X', '2'][kp.indexOf(Math.max(...kp))] : null;
+  const picks = [providerPick, kiqiqPick, external ? String(external.pick).toUpperCase() : null]
+    .filter(pick => ['1', 'X', '2'].includes(pick));
+  if (!picks.length) return null;
+  const counts = { '1': 0, X: 0, '2': 0 };
+  picks.forEach(pick => counts[pick]++);
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (ranked.length > 1 && ranked[0][1] === ranked[1][1]) return null;
+  return ranked[0][0];
+}
+function finalVerdict(match, analysis, feeds) {
+  const modelPick = ['home', 'draw', 'away'].reduce((best, key) =>
+    analysis.outcomes[key] > analysis.outcomes[best] ? key : best, 'home');
+  const model = { home: '1', draw: 'X', away: '2' }[modelPick];
+  const consensus = globalConsensusPick(match, analysis, feeds);
+  if (!consensus) return { pick: null, text: 'FINAL VERDICT: etibarlı ortaq seçim yoxdur; yekun seçim verilmir' };
+  if (model === consensus) return { pick: model, text: 'FINAL VERDICT: SAKHAVAT MODEL və GLOBAL CONSENSUS razıdır · ' + model };
+  return { pick: null, text: 'FINAL VERDICT: fikir ayrılığı var · MODEL ' + model + ' / CONSENSUS ' + consensus + ' · yekun seçim verilmir' };
+}
 function globalConsensusText(match, analysis, feeds) {
   const external = findGlobalPick(match, feeds?.footballAnalytics || []);
   const kiqiq = findKiqiqPrediction(match, feeds?.kiqiq || []);
@@ -366,6 +393,8 @@ function recordPredictionHistory(match, analysis, feeds) {
     kickoff: new Date(kickoff).toISOString(), league: first(match.league?.name,match.league_name,'Liqa'),
     probabilities, best, exactScore: analysis.scores?.[0]?.score || null,
     xg: [analysis.hx,analysis.ax], consensus: globalConsensusText(match,analysis,feeds),
+    consensusPick: globalConsensusPick(match,analysis,feeds),
+    finalPick: globalConsensusPick(match,analysis,feeds) === best ? best : null,
     savedAt: new Date().toISOString(), result: null
   };
   rows.push(row);
@@ -548,10 +577,7 @@ async function loadFixtures() {
             : 'PROVIDER EHTİMALI: 1 ' + percent(analysis.provider.home_win) +
               ' · X ' + percent(analysis.provider.draw) + ' · 2 ' + percent(analysis.provider.away_win);
         const verdict = document.createElement('div'); verdict.className = 'verdict';
-        verdict.textContent = analysis.edge === null ? 'FINAL VERDICT: bazar müqayisəsi mümkün deyil' :
-          Math.abs(analysis.edge) < 3 ? 'FINAL VERDICT: aydın statistik üstünlük yoxdur' :
-          'FINAL VERDICT: ' + (analysis.edge > 0 ? '1/X/2 ' + analysis.labels[analysis.best] + ' istiqamətində model üstünlüyü' : 'bazar modeldən daha güclüdür') +
-          ' (' + (analysis.edge > 0 ? '+' : '') + analysis.edge.toFixed(1) + ' faiz bəndi)';
+        verdict.textContent = finalVerdict(match, analysis, globalPicks).text;
         const scoresLine = document.createElement('div'); scoresLine.textContent =
           'Ən ehtimallı hesablar: ' + analysis.scores.map(x => x.score).join(' · ') +
           ' | xG: ' + analysis.hx.toFixed(2) + ' - ' + analysis.ax.toFixed(2);
