@@ -163,6 +163,19 @@ function normalizeExternalProbabilities(row) {
   if (sum < 85 || sum > 115) return null;
   return values.map(v => v / sum * 100);
 }
+function finalVerdict(match, analysis, feeds) {
+  if (!analysis) return { confirmed: false, pick: null, text: 'FINAL VERDICT: model üçün etibarlı xG məlumatı yoxdur; seçim verilmir' };
+  const modelPick = analysis.labels?.[analysis.best] || null;
+  const consensusPick = globalConsensusPick(match, analysis, feeds);
+  if (!consensusPick) return { confirmed: false, pick: null, text: 'FINAL VERDICT: iki müstəqil mənbədən təsdiqlənmiş konsensus yoxdur; yekun seçim verilmir' };
+  if (!modelPick || consensusPick !== modelPick) {
+    return { confirmed: false, pick: null, text: 'FINAL VERDICT: SAKHAVAT modeli və müstəqil konsensus fərqlənir; yekun seçim verilmir' };
+  }
+  const marketText = analysis.market
+    ? ' · bazar ehtimalı ' + percent(analysis.market[{ '1':'home', 'X':'draw', '2':'away' }[modelPick]])
+    : ' · bazar əmsalı mövcud deyil';
+  return { confirmed: true, pick: modelPick, text: 'FINAL VERDICT: TƏSDİQLƏNDİ · model və 2 müstəqil mənbə eyni seçimdədir: ' + modelPick + marketText };
+}
 function globalConsensusPick(match, analysis, feeds) {
   // Footballdata.io is the fixture/statistics provider, not an independent consensus source.
   // Consensus uses only separate external prediction services.
