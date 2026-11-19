@@ -355,10 +355,13 @@ async function fetchTeamStats(teamId, seasonId, leagueId) {
         const stats = payload.data || payload.providerData?.data || {};
         const xg = stats.xg || {};
         const played = Number(stats.summary?.matches_played || 0);
-        if (played < 5 || !(Number(xg.xg_for_per_match) > 0) ||
-            !(Number(xg.xg_against_per_match) > 0)) return null;
-        return { played, xgFor: Number(xg.xg_for_per_match),
-          xgAgainst: Number(xg.xg_against_per_match),
+        const xgFor = Number(first(xg.xg_for_per_match, xg.for_per_match, xg.avg_for_per_match, xg.average_for_per_match));
+        const xgAgainst = Number(first(xg.xg_against_per_match, xg.against_per_match, xg.avg_against_per_match, xg.average_against_per_match));
+        const updatedAt = Date.parse(stats.last_updated || '');
+        const statsFresh = Number.isFinite(updatedAt) && updatedAt <= Date.now() + 5 * 60 * 1000 &&
+          Date.now() - updatedAt <= 30 * 86400000;
+        if (played < 5 || !(xgFor > 0) || !(xgAgainst > 0) || !statsFresh) return null;
+        return { played, xgFor, xgAgainst, updatedAt: new Date(updatedAt).toISOString(),
           form: stats.form?.overall || '', wins: Number(stats.summary?.wins || 0),
           draws: Number(stats.summary?.draws || 0), losses: Number(stats.summary?.losses || 0) };
       }).catch(() => null);
