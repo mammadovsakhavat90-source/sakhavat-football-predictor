@@ -53,7 +53,7 @@ jobs:
               if "maven.aliyun.com/repository/google" not in source:
                   source = source.replace(
                       "google()",
-                      'google()\\n        maven { url "https://maven.aliyun.com/repository/google" }\\n        maven { url "https://maven.aliyun.com/repository/public" }'
+                      'google()\n        maven { url "https://maven.aliyun.com/repository/google" }\n        maven { url "https://maven.aliyun.com/repository/public" }'
                   )
                   file.write_text(source)
           PY
