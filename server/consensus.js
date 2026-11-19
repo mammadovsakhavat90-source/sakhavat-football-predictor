@@ -69,11 +69,11 @@ function normalizeProbabilities(row) {
   let values = [Number(row.home_win_prob), Number(row.draw_prob), Number(row.away_win_prob)];
   if (!values.every(Number.isFinite) || values.some(value => value < 0)) return null;
   let sum = values.reduce((total, value) => total + value, 0);
-  if (values.every(value => value <= 1) && sum >= 0.85 && sum <= 1.15) {
+  if (values.every(value => value <= 1) && sum >= 0.90 && sum <= 1.10) {
     values = values.map(value => value * 100);
     sum *= 100;
   }
-  if (sum < 85 || sum > 115) return null;
+  if (sum < 90 || sum > 110) return null;
   return values.map(value => value / sum * 100);
 }
 
