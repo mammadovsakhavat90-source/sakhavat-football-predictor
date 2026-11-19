@@ -573,7 +573,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 75000) {
 async function checkConnection() {
   try {
     const r = await fetchWithTimeout(apiUrl('/api/status'), { cache: 'no-store' }, 75000); const d = await r.json();
-    const label = d.apiConfigured ? 'API aktivdir · ' + (d.provider || 'Provider') : 'API açarı yoxdur';
+    const label = d.apiConfigured ? 'API açarı qoşulub · ' + (d.provider || 'Provider') : 'API açarı yoxdur';
     connection.textContent = label; if (connectionState) connectionState.textContent = label;
   } catch { connection.textContent = 'Bağlantı xətası'; if (connectionState) connectionState.textContent = 'Bağlantı xətası'; }
 }
@@ -699,7 +699,10 @@ async function loadFixtures() {
     if (league) params.set('league_id', league);
     const response = await fetchWithTimeout(apiUrl('/api/fixtures?' + params.toString()), { cache: 'no-store' }, 75000);
     const data = await response.json();
-    if (!response.ok || data.ok === false) throw new Error(data.error || 'Məlumat alınmadı');
+    if (!response.ok || data.ok === false || data.providerData?.success === false) throw new Error(data.error || 'Məlumat provayderi uğursuz cavab verdi');
+    const liveLabel = 'API işləyir · Footballdata.io';
+    connection.textContent = liveLabel;
+    if (connectionState) connectionState.textContent = liveLabel;
     const games = Array.isArray(data.matches) ? data.matches :
       Array.isArray(data.providerData?.data?.matches) ? data.providerData.data.matches : [];
     if (!games.length) { document.getElementById('safePicks')?.replaceChildren(); document.getElementById('valuePicks')?.replaceChildren(); renderEmpty('Bu tarixdə oyun tapılmadı', 'Provayder bu tarix və seçilmiş liqa üçün oyun qaytarmadı.'); return; }
@@ -785,7 +788,13 @@ async function loadFixtures() {
       const analysis=matchAnalysis(match);
       matchesBox.append(renderFixtureCard(match,analysis,globalPicks));
     });
-  } catch (error) { console.error('Fixture loading failed:', error); renderEmpty('Məlumat yüklənmədi', error.name === 'TimeoutError' ? error.message : (error.message || 'Şəbəkə bağlantısı kəsildi.')); }
+  } catch (error) {
+    console.error('Fixture loading failed:', error);
+    const failedLabel = 'API xətası · Footballdata.io';
+    connection.textContent = failedLabel;
+    if (connectionState) connectionState.textContent = failedLabel;
+    renderEmpty('Məlumat yüklənmədi', error.name === 'TimeoutError' ? error.message : (error.message || 'Şəbəkə bağlantısı kəsildi.'));
+  }
 }
 let lastFixtureLoadAt = 0;
 document.getElementById('refresh')?.addEventListener('click', loadFixtures);
