@@ -90,6 +90,11 @@ async function providerData(endpoint) {
   return cachedJson(key, providerTtl(endpoint), () =>
     fetchJson(API_BASE + endpoint, { Authorization: 'Bearer ' + API_KEY }));
 }
+function validIsoDate(value) {
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(value || ''))) return false;
+  const parsed = new Date(String(value) + 'T00:00:00.000Z');
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 function sendProviderError(res, error) {
   const timedOut = error.name === 'TimeoutError' || error.name === 'AbortError';
   return res.status(error.status || (timedOut ? 504 : 502)).json({
