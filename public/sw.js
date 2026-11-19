@@ -1,10 +1,10 @@
 'use strict';
-const CACHE_NAME = 'sakhavat-shell-v2';
+const CACHE_NAME = 'sakhavat-shell-v3';
 const APP_SHELL = [
   '/',
   '/index.html',
   '/styles.css?v=11',
-  '/app.js?v=28',
+  '/app.js?v=29',
   '/manifest.json',
   '/icon.svg'
 ];
