@@ -188,9 +188,11 @@ function globalConsensusText(match, analysis, feeds) {
   if (!sources.length) return 'GLOBAL CONSENSUS: uyğun müstəqil proqnoz tapılmadı; mənbə əhatəsi məhduddur';
   const counts = { '1': 0, X: 0, '2': 0 };
   sources.forEach(source => { counts[source.pick]++; });
-  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const top = ranked[0];
   const names = sources.map(source => source.name + ': ' + source.pick).join(' · ');
   if (sources.length === 1) return 'GLOBAL CONSENSUS: yalnız 1 mənbə mövcuddur · ' + names;
+  if (ranked[1] && ranked[0][1] === ranked[1][1]) return 'GLOBAL CONSENSUS: mənbələr arasında bərabərlik var; ortaq seçim yoxdur | ' + names;
   const agreement = top[1] === sources.length
     ? sources.length + '/' + sources.length + ' mənbə eyni istiqamətdədir · ' + top[0]
     : top[1] + '/' + sources.length + ' mənbənin ortaq istiqaməti · ' + top[0];
