@@ -340,6 +340,14 @@ function matchAnalysis(match) {
   const edge = market ? outcomes[best] - market[best] : null;
   return { hx, ax, outcomes, scores: scores.slice(0, 2), market, provider, best, edge, labels };
 }
+function doubleChanceSelection(probabilities) {
+  const ranked = Object.entries(probabilities || {}).filter(([key, value]) =>
+    ['1','X','2'].includes(key) && Number.isFinite(Number(value)))
+    .sort((a,b) => Number(b[1]) - Number(a[1]));
+  if (ranked.length < 3) return null;
+  const pair = ranked.slice(0,2).map(x => x[0]);
+  return ['1X','12','X2'].find(label => [...label].every(key => pair.includes(key))) || null;
+}
 function percent(value) { return Number.isFinite(Number(value)) ? Number(value).toFixed(1) + '%' : '—'; }
 
 const HISTORY_KEY = 'sakhavat_predictor_history_v1';
@@ -395,7 +403,7 @@ function recordPredictionHistory(match, analysis, feeds) {
   const row = {
     id, home: teamName(match,'home'), away: teamName(match,'away'),
     kickoff: new Date(kickoff).toISOString(), league: first(match.league?.name,match.league_name,'Liqa'),
-    probabilities, best, exactScore: analysis.scores?.[0]?.score || null,
+    probabilities, best, doubleChance: doubleChanceSelection(probabilities), exactScore: analysis.scores?.[0]?.score || null,
     xg: [analysis.hx,analysis.ax], consensus: globalConsensusText(match,analysis,feeds),
     consensusPick: globalConsensusPick(match,analysis,feeds),
     finalPick: globalConsensusPick(match,analysis,feeds) === best ? best : null,
@@ -427,9 +435,13 @@ function renderPredictionHistory() {
     const scorePick=field=>{
       const eligible=completed.filter(row=>['1','X','2'].includes(row[field]));
       const hits=eligible.filter(row=>row[field]===row.result.outcome).length;
-      return eligible.length ? hits+'/'+eligible.length+' ('+(hits/eligible.length*100).toFixed(1)+'%)' : 'qeyd yoxdur';
+      return eligible.length ? hits+'/'+eligible.length+' ('+(hits/eligible.length*100).toFixed(1)+'%) · n='+eligible.length : 'qeyd yoxdur';
     };
-    audit.textContent='SAKHAVAT MODEL: '+scorePick('best')+
+    const dcRows = completed.filter(row => ['1X','12','X2'].includes(row.doubleChance));
+    const dcHits = dcRows.filter(row => row.doubleChance.includes(row.result.outcome)).length;
+    const dcRate = dcRows.length ? dcHits+'/'+dcRows.length+' ('+(dcHits/dcRows.length*100).toFixed(1)+'%)' : 'qeyd yoxdur';
+    audit.textContent='SAKHAVAT MODEL 1-X-2: '+scorePick('best')+
+      ' · İKİQAT ŞANS: '+dcRate+
       ' · GLOBAL CONSENSUS: '+scorePick('consensusPick')+
       ' · FINAL VERDICT: '+scorePick('finalPick')+
       ' | yalnız oyunöncəsi saxlanmış seçimlər';
@@ -447,9 +459,9 @@ function renderPredictionHistory() {
     const date=document.createElement('div'); date.className='meta';
     date.textContent=new Date(row.kickoff).toLocaleString('az-AZ',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Baku'})+' · Bakı · '+row.league;
     const forecast=document.createElement('div'); forecast.className='history-detail';
-    forecast.textContent='Saxlanmış proqnoz: 1 '+percent(row.probabilities['1'])+' · X '+percent(row.probabilities.X)+' · 2 '+percent(row.probabilities['2'])+' | seçim: '+row.best+' | hesab: '+(row.exactScore||'—');
+    forecast.textContent='Saxlanmış proqnoz: 1 '+percent(row.probabilities['1'])+' · X '+percent(row.probabilities.X)+' · 2 '+percent(row.probabilities['2'])+' | seçim: '+row.best+' | ikiqat şans: '+(row.doubleChance||'—')+' | hesab: '+(row.exactScore||'—');
     const result=document.createElement('div'); result.className='meta';
-    result.textContent=row.result?'Nəticə: '+row.result.exact+' · '+(row.best===row.result.outcome?'1-X-2 düzgün':'1-X-2 səhv')+' · '+(row.exactScore===row.result.exact?'dəqiq hesab düzgün':'dəqiq hesab səhv'):'Nəticə gözlənilir';
+    result.textContent=row.result?'Nəticə: '+row.result.exact+' · '+(row.best===row.result.outcome?'1-X-2 düzgün':'1-X-2 səhv')+' · '+(row.doubleChance && row.doubleChance.includes(row.result.outcome)?'ikiqat şans düzgün':'ikiqat şans səhv')+' · '+(row.exactScore===row.result.exact?'dəqiq hesab düzgün':'dəqiq hesab səhv'):'Nəticə gözlənilir';
     item.append(title,date,forecast,result); list.append(item);
   });
   const note=document.getElementById('historyNote');
