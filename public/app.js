@@ -1,6 +1,8 @@
 const dateInput = document.getElementById('matchDate');
 const matchesBox = document.getElementById('matchList');
 const connection = document.getElementById('connection');
+const API_ORIGIN = window.Capacitor ? 'https://sakhavat-football-predictor.onrender.com' : '';
+const apiUrl = path => API_ORIGIN + path;
 const localToday = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
 dateInput.value = localToday.toISOString().slice(0, 10);
 const first = (...values) => values.find(v => v !== undefined && v !== null && String(v).trim() !== '');
@@ -211,7 +213,7 @@ async function fetchMatchOdds(matchId) {
   if (!matchId) return null;
   const key = String(matchId);
   if (!matchOddsCache.has(key)) {
-    const request = fetchWithTimeout('/api/matches/' + encodeURIComponent(key) + '/odds',
+    const request = fetchWithTimeout(apiUrl('/api/matches/' + encodeURIComponent(key) + '/odds',
       { cache: 'no-store' }, 12000).then(async response => {
         if (!response.ok) return null;
         const payload = await response.json();
@@ -228,7 +230,7 @@ async function fetchMatchProbabilities(matchId) {
   if (!matchId) return null;
   const key = String(matchId);
   if (!matchProbabilityCache.has(key)) {
-    const request = fetchWithTimeout('/api/matches/' + encodeURIComponent(key) + '/probabilities',
+    const request = fetchWithTimeout(apiUrl('/api/matches/' + encodeURIComponent(key) + '/probabilities',
       { cache: 'no-store' }, 12000).then(async response => {
         if (!response.ok) return null;
         const payload = await response.json();
@@ -245,7 +247,7 @@ async function fetchTeamStats(teamId, seasonId, leagueId) {
   if (!teamId || !seasonId || !leagueId) return null;
   const key = [teamId, seasonId, leagueId].join(':');
   if (!teamStatsCache.has(key)) {
-    const request = fetchWithTimeout('/api/teams/' + encodeURIComponent(teamId) +
+    const request = fetchWithTimeout(apiUrl('/api/teams/' + encodeURIComponent(teamId) +
       '/stats?' + new URLSearchParams({ season_id: seasonId, league_id: leagueId }),
       { cache: 'no-store' }, 14000).then(async response => {
         const payload = await response.json();
@@ -437,7 +439,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
 
 async function checkConnection() {
   try {
-    const r = await fetchWithTimeout('/api/status', { cache: 'no-store' }, 10000); const d = await r.json();
+    const r = await fetchWithTimeout(apiUrl('/api/status', { cache: 'no-store' }, 10000); const d = await r.json();
     connection.textContent = d.apiConfigured ? 'API aktivdir · ' + (d.provider || 'Provider') : 'API açarı yoxdur';
   } catch { connection.textContent = 'Bağlantı xətası'; }
 }
@@ -447,7 +449,7 @@ async function loadFixtures() {
     const params = new URLSearchParams({ date: dateInput.value });
     const league = document.getElementById('leagueFilter')?.value;
     if (league) params.set('league_id', league);
-    const response = await fetchWithTimeout('/api/fixtures?' + params.toString(), { cache: 'no-store' }, 18000);
+    const response = await fetchWithTimeout(apiUrl('/api/fixtures?' + params.toString(), { cache: 'no-store' }, 18000);
     const data = await response.json();
     if (!response.ok || data.ok === false) throw new Error(data.error || 'Məlumat alınmadı');
     const games = Array.isArray(data.matches) ? data.matches :
