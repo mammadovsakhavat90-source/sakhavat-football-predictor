@@ -1,7 +1,7 @@
 const dateInput = document.getElementById('matchDate');
 const matchesBox = document.getElementById('matchList');
 const connection = document.getElementById('connection');
-const API_ORIGIN = window.Capacitor ? 'https://sakhavat-football-predictor.onrender.com' : '';
+const API_ORIGIN = 'https://sakhavat-football-predictor.onrender.com';
 const apiUrl = path => API_ORIGIN + path;
 const bakuParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Baku', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
 dateInput.value = bakuParts.find(p => p.type === 'year').value + '-' + bakuParts.find(p => p.type === 'month').value + '-' + bakuParts.find(p => p.type === 'day').value;
