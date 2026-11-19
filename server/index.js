@@ -97,36 +97,6 @@ function sendProviderError(res, error) {
     details: error.message
   });
 }
-async function footballData(endpoint, res, requestedLeagueId, date) {
-  try {
-    const result = await providerData(endpoint);
-    const data = result.data;
-    if (data.success === false) return res.status(502).json({ ok: false, error: 'Footballdata.io uğursuz cavab qaytardı.', details: data });
-    const root = data.data || {};
-    const rawMatches = root.matches || root.fixtures || (Array.isArray(root) ? root : []);
-    const matches = rawMatches.filter(match => {
-      const id = String(match.league?.league_id ?? match.league_id ?? match.competition?.league_id ?? '');
-      return ALLOWED_LEAGUE_IDS.has(id) && (!requestedLeagueId || id === String(requestedLeagueId));
-    }).map(match => {
-      const id = String(match.league?.league_id ?? match.league_id ?? match.competition?.league_id ?? '');
-      return { ...match, league_display_name: ALLOWED_LEAGUES[id] };
-    });
-    res.setHeader('Cache-Control', 'public, max-age=60');
-    return res.json({
-      ok: true,
-      provider: 'Footballdata.io',
-      providerData: data,
-      matches,
-      meta: {
-        allowedLeagues: ALLOWED_LEAGUES,
-        providerMatches: rawMatches.length,
-        filteredMatches: matches.length,
-        cache: result.cached ? (result.stale ? 'stale-fallback' : 'hit') : 'miss',
-        ...(result.warning ? { cacheWarning: result.warning } : {})
-      }
-    });
-  } catch (error) { return sendProviderError(res, error); }
-}
 async function providerGet(endpoint, res) {
   try {
     const result = await providerData(endpoint);
@@ -255,6 +225,7 @@ app.get('/api/results', async (req, res) => {
     const params = new URLSearchParams({ from, to, page: '1', limit: '100' });
     const firstPage = await cachedJson('footballdata:results:' + params.toString(), 30 * 60 * 1000, () =>
       fetchJson(API_BASE + '/fixtures/results?' + params.toString(), { Authorization: 'Bearer ' + API_KEY }), 2 * 60 * 60 * 1000);
+    if (firstPage.data.success === false) throw new Error('Footballdata.io nəticə sorğusu uğursuz oldu.');
     const root = firstPage.data.data || {};
     const firstMatches = Array.isArray(root.matches) ? root.matches : [];
     const totalPages = Math.max(1, Number(firstPage.data.meta?.pagination?.total_pages) || 1);
